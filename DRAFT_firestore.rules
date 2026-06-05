@@ -1,0 +1,109 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // 1. Global safety net - default deny
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Helper functions
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isVerifiedUser() {
+      return isSignedIn() && request.auth.token.email_verified == true;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    // Helper: Validating HeavyUnit document shape
+    function isValidHeavyUnit(data) {
+      return data.keys().hasAll(['id', 'unitCode', 'brand', 'type', 'status'])
+        && data.keys().size() == 5
+        && data.id is string && data.id.size() <= 128
+        && data.unitCode is string && data.unitCode.size() <= 50
+        && data.brand is string && data.brand.size() <= 100
+        && data.type is string && data.type.size() <= 100
+        && data.status is string && data.status.size() <= 50;
+    }
+
+    // Helper: Validating Employee document shape
+    function isValidEmployee(data) {
+      return data.keys().hasAll(['id', 'nrp', 'name', 'rosterPattern', 'status', 'specializations'])
+        && data.keys().size() == 6
+        && data.id is string && data.id.size() <= 128
+        && data.nrp is string && data.nrp.size() <= 50
+        && data.name is string && data.name.size() <= 100
+        && data.rosterPattern is string && data.rosterPattern.size() <= 20
+        && data.status is string && data.status.size() <= 50
+        && data.specializations is list && data.specializations.size() <= 10;
+    }
+
+    // Helper: Validating UnitGroup document shape
+    function isValidUnitGroup(data) {
+      return data.keys().hasAll(['id', 'name'])
+        && (data.keys().size() == 2 || (data.keys().hasAll(['description']) && data.keys().size() == 3))
+        && data.id is string && data.id.size() <= 128
+        && data.name is string && data.name.size() <= 100;
+    }
+
+    // Helper: Validating UnitSetting document shape
+    function isValidUnitSetting(data) {
+      return data.keys().hasAll(['id', 'groupId', 'unitId', 'operator1Id', 'operator2Id', 'rosterPattern', 'fixedOffDayOfWeek', 'startSiangDate'])
+        && (data.keys().size() == 8 || (data.keys().hasAll(['masterSlotCode']) && data.keys().size() == 9))
+        && data.id is string && data.id.size() <= 128
+        && data.groupId is string && data.groupId.size() <= 128
+        && data.unitId is string && data.unitId.size() <= 128
+        && data.operator1Id is string && data.operator1Id.size() <= 128
+        && data.operator2Id is string && data.operator2Id.size() <= 128
+        && data.rosterPattern is string && data.rosterPattern.size() <= 20
+        && data.fixedOffDayOfWeek is int
+        && data.startSiangDate is string && data.startSiangDate.size() <= 20;
+    }
+
+    // Collections matched against schemas
+    match /heavyUnits/{unitId} {
+      allow read: if isSignedIn();
+      allow create: if isVerifiedUser() && isValidId(unitId) && isValidHeavyUnit(incoming());
+      allow update: if isVerifiedUser() && isValidId(unitId) && isValidHeavyUnit(incoming())
+        && incoming().id == existing().id;
+      allow delete: if isVerifiedUser() && isValidId(unitId);
+    }
+
+    match /employees/{employeeId} {
+      allow read: if isSignedIn();
+      allow create: if isVerifiedUser() && isValidId(employeeId) && isValidEmployee(incoming());
+      allow update: if isVerifiedUser() && isValidId(employeeId) && isValidEmployee(incoming())
+        && incoming().id == existing().id;
+      allow delete: if isVerifiedUser() && isValidId(employeeId);
+    }
+
+    match /unitGroups/{groupId} {
+      allow read: if isSignedIn();
+      allow create: if isVerifiedUser() && isValidId(groupId) && isValidUnitGroup(incoming());
+      allow update: if isVerifiedUser() && isValidId(groupId) && isValidUnitGroup(incoming())
+        && incoming().id == existing().id;
+      allow delete: if isVerifiedUser() && isValidId(groupId);
+    }
+
+    match /unitSettings/{settingId} {
+      allow read: if isSignedIn();
+      allow create: if isVerifiedUser() && isValidId(settingId) && isValidUnitSetting(incoming());
+      allow update: if isVerifiedUser() && isValidId(settingId) && isValidUnitSetting(incoming())
+        && incoming().id == existing().id;
+      allow delete: if isVerifiedUser() && isValidId(settingId);
+    }
+  }
+}

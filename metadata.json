@@ -1,0 +1,6 @@
+{
+  "name": "MANPOWER CONTROL",
+  "description": "Sistem monitoring unit alat berat (Dump Truck) dan manajemen penugasan operator 2 shift otomatis secara offline-first untuk pengawas tambang hauling.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

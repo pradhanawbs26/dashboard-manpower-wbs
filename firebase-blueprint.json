@@ -1,0 +1,79 @@
+{
+  "entities": {
+    "HeavyUnit": {
+      "title": "HeavyUnit",
+      "description": "Represents heavy equipment unit",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "unitCode": { "type": "string" },
+        "brand": { "type": "string" },
+        "type": { "type": "string" },
+        "status": { "type": "string" }
+      },
+      "required": ["id", "unitCode", "brand", "type", "status"]
+    },
+    "Employee": {
+      "title": "Employee",
+      "description": "Represents a manpower employee",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "nrp": { "type": "string" },
+        "name": { "type": "string" },
+        "rosterPattern": { "type": "string" },
+        "status": { "type": "string" },
+        "specializations": {
+          "type": "array"
+        }
+      },
+      "required": ["id", "nrp", "name", "rosterPattern", "status", "specializations"]
+    },
+    "UnitGroup": {
+      "title": "UnitGroup",
+      "description": "Represents a group of units",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "description": { "type": "string" }
+      },
+      "required": ["id", "name"]
+    },
+    "UnitSetting": {
+      "title": "UnitSetting",
+      "description": "Rostering/setting configuration for a unit",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "groupId": { "type": "string" },
+        "unitId": { "type": "string" },
+        "masterSlotCode": { "type": "string" },
+        "operator1Id": { "type": "string" },
+        "operator2Id": { "type": "string" },
+        "rosterPattern": { "type": "string" },
+        "fixedOffDayOfWeek": { "type": "number" },
+        "startSiangDate": { "type": "string" }
+      },
+      "required": ["id", "groupId", "unitId", "operator1Id", "operator2Id", "rosterPattern", "fixedOffDayOfWeek", "startSiangDate"]
+    }
+  },
+  "firestore": {
+    "/heavyUnits/{unitId}": {
+      "schema": "HeavyUnit",
+      "description": "Collection of physical heavy equipment units"
+    },
+    "/employees/{employeeId}": {
+      "schema": "Employee",
+      "description": "Collection of employees"
+    },
+    "/unitGroups/{groupId}": {
+      "schema": "UnitGroup",
+      "description": "Collection of unit groupings (e.g. Alat Utama, Master)"
+    },
+    "/unitSettings/{settingId}": {
+      "schema": "UnitSetting",
+      "description": "Rostering settings mapping operators to units"
+    }
+  }
+}

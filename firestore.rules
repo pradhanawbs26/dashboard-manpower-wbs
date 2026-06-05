@@ -1,0 +1,22 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // Allow read/write access to all collections for smooth sync experience
+    match /heavyUnits/{unitId} {
+      allow read, write: if true;
+    }
+
+    match /employees/{employeeId} {
+      allow read, write: if true;
+    }
+
+    match /unitGroups/{groupId} {
+      allow read, write: if true;
+    }
+
+    match /unitSettings/{settingId} {
+      allow read, write: if true;
+    }
+  }
+}
