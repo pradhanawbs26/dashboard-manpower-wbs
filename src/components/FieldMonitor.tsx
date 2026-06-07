@@ -60,8 +60,13 @@ export default function FieldMonitor({
   };
 
   const handleSetToday = () => {
-    const today = new Date();
-    setSelectedDate(today.toISOString().split('T')[0]);
+    const now = new Date();
+    const utc = now.getTime() + now.getTimezoneOffset() * 60000;
+    const wib = new Date(utc + (3600000 * 7));
+    const yyyy = wib.getFullYear();
+    const mm = String(wib.getMonth() + 1).padStart(2, '0');
+    const dd = String(wib.getDate()).padStart(2, '0');
+    setSelectedDate(`${yyyy}-${mm}-${dd}`);
   };
 
   // Get active operator info for each setting on the selected date and shift with automatic master backfilling
@@ -256,7 +261,25 @@ export default function FieldMonitor({
         };
       });
 
-    return [...mappedUtamaSettings, ...mappedMasterSettings];
+    // Check if ALL 'utama' settings have their primary operators active & on-duty (not filled by master, and not blank)
+    const allUtamaFilledByPrimary = mappedUtamaSettings.length > 0 && mappedUtamaSettings.every(item => {
+      return item.originalOperator && 
+             item.originalOperator.status === 'Active' && 
+             !item.isFilledByMaster && 
+             item.activeRoleStatus !== 'OFF';
+    });
+
+    const filteredMasterSettings = mappedMasterSettings.filter(m => {
+      // 1. Hide if they have filled a vacant unit (dispatchedTo is set to some unitCode)
+      if (m.dispatchedTo) return false;
+      
+      // 2. Hide all of them if NOT all primary units are filled by their original operators
+      if (!allUtamaFilledByPrimary) return false;
+      
+      return true;
+    });
+
+    return [...mappedUtamaSettings, ...filteredMasterSettings];
   }, [settings, selectedDate, selectedShift, employeeMap, unitMap]);
 
   // Filter based on search query (unit code or operator name) and group id
@@ -375,39 +398,22 @@ export default function FieldMonitor({
           </div>
         </div>
 
-        {/* Date Selector Navigation Row */}
-        <div className="flex flex-col sm:flex-row items-center justify-between gap-3 mt-5 bg-slate-50 p-3 rounded-lg border border-slate-200">
-          <div className="flex items-center gap-2 w-full sm:w-auto">
-            <button
-              onClick={handlePrevDay}
-              className="px-3 py-1.5 text-xs font-bold bg-white rounded border border-slate-200 text-slate-700 hover:bg-slate-100 hover:text-slate-900 transition cursor-pointer"
-            >
-              ← Sebelum
-            </button>
-            <button
-              onClick={handleSetToday}
-              className="px-3 py-1.5 text-xs font-bold bg-amber-500/10 text-amber-700 border border-amber-550/25 rounded hover:bg-amber-500/20 transition cursor-pointer"
-            >
-              Hari Ini
-            </button>
-            <button
-              onClick={handleNextDay}
-              className="px-3 py-1.5 text-xs font-bold bg-white rounded border border-slate-200 text-slate-700 hover:bg-slate-100 hover:text-slate-900 transition cursor-pointer"
-            >
-              Sesudah →
-            </button>
+        {/* Date Selector Row */}
+        <div className="flex flex-col sm:flex-row items-center justify-between gap-3 mt-5 bg-slate-100 p-3 rounded-lg border border-slate-200">
+          <div className="flex items-center gap-2.5 w-full sm:w-auto justify-start">
+            <Calendar className="text-amber-500 h-4 w-4 shrink-0" />
+            <span className="text-xs font-black text-slate-800 font-mono uppercase tracking-wide">
+              Tanggal Operasional: {formatIndonesianDate(selectedDate)}
+            </span>
           </div>
 
           <div className="flex items-center gap-2.5 w-full sm:w-auto justify-end">
-            <Calendar className="text-amber-500 h-4 w-4 shrink-0" />
-            <span className="text-xs font-bold text-slate-800 font-mono">
-              {formatIndonesianDate(selectedDate)}
-            </span>
+            <span className="text-[10px] text-slate-500 font-black uppercase tracking-wider font-mono">PILIH TANGGAL:</span>
             <input
               type="date"
               value={selectedDate}
               onChange={(e) => e.target.value && setSelectedDate(e.target.value)}
-              className="bg-white text-slate-800 text-xs border border-slate-200 rounded p-1 font-mono focus:outline-none focus:border-amber-500 cursor-pointer"
+              className="bg-white text-slate-800 text-xs border border-slate-200 rounded p-1.5 font-mono font-bold focus:outline-none focus:border-amber-500 cursor-pointer"
             />
           </div>
         </div>
@@ -567,7 +573,7 @@ export default function FieldMonitor({
 
                              {isFilledByMaster && backupFromSlot && (
                                <div className="mt-1 text-[8px] px-1 bg-amber-500/10 text-amber-800 rounded border border-amber-500/20 font-bold flex items-center justify-center gap-0.5 truncate">
-                                 <span>Via {backupFromSlot}</span>
+                                 <span className="block bg-amber-500 text-slate-950 px-1 py-0.5 rounded font-black text-[9px] uppercase tracking-wide mb-1.5 animate-pulse">★ OPERATOR MASTER ★</span><span>Via Slot: {backupFromSlot}</span>
                                </div>
                              )}
 

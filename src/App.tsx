@@ -58,8 +58,16 @@ export default function App() {
     return saved ? JSON.parse(saved) : INITIAL_GROUPS;
   });
 
-  // Selected date defaults to current mock date which is 2026-06-04 based on instructions metadata
-  const [selectedDate, setSelectedDate] = useState<string>('2026-06-04');
+  // Selected date defaults to current date in Waktu Indonesia Barat (WIB - UTC+7)
+  const [selectedDate, setSelectedDate] = useState<string>(() => {
+    const now = new Date();
+    const utc = now.getTime() + now.getTimezoneOffset() * 60000;
+    const wibDate = new Date(utc + (3600000 * 7));
+    const yyyy = wibDate.getFullYear();
+    const mm = String(wibDate.getMonth() + 1).padStart(2, '0');
+    const dd = String(wibDate.getDate()).padStart(2, '0');
+    return `${yyyy}-${mm}-${dd}`;
+  });
 
   // Workspace layout style:
   // 'monitor_only' = Jendela 1 (Field Monitor Screen) -> Dashboard Unit

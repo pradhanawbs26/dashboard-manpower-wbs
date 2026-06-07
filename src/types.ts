@@ -7,7 +7,7 @@ export interface HeavyUnit {
   id: string;
   unitCode: string; // e.g. "DT-101", "EX-203"
   brand: string;     // e.g. "Scania P410", "Volvo FMX 440", "Komatsu PC400"
-  type: 'Wheel Loader' | 'Excavator' | 'Bulldozer' | 'Reach Stacker' | 'Forklift' | 'Dump Truck' | 'Flat Deck' | 'Water Truck' | 'Barge Loading Conveyor' | 'Weightbridge' | 'Kapten FD' | 'Other';
+  type: 'Wheel Loader' | 'Excavator' | 'Bulldozer' | 'Reach Stacker' | 'Forklift' | 'Dump Truck' | 'Flat Deck' | 'Water Truck' | 'Barge Loading Conveyor' | 'Weightbridge' | 'Kapten FD' | 'Motor Grader' | 'Compactor' | 'Other';
   status: 'Ready' | 'Breakdown' | 'Maintenance';
 }
 

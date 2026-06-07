@@ -8,7 +8,7 @@ import { HeavyUnit, Employee, UnitSetting, UnitGroup } from '../types';
 import { calculateShift, generateDateRange, formatIndonesianDayName, formatIndonesianDate } from '../utils/scheduler';
 import { 
   Building2, Truck, Users, Settings, Plus, Pencil, Trash2, Check, X, 
-  HelpCircle, AlertCircle, Info, Calendar, CalendarDays, Eye, RefreshCw 
+  HelpCircle, AlertCircle, Info, Calendar, CalendarDays, Eye, RefreshCw, Search 
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
@@ -24,6 +24,8 @@ const EQUIPMENT_CATEGORIES = [
   'Barge Loading Conveyor',
   'Weightbridge',
   'Kapten FD',
+  'Motor Grader',
+  'Compactor',
   'Other'
 ];
 
@@ -54,10 +56,21 @@ export default function SupervisorPanel({
 }: SupervisorPanelProps) {
   // Main Navigation Menu Tabs (Jendela 2)
   const [activeMenu, setActiveMenu] = useState<'unit_db' | 'employee_db' | 'unit_settings'>('unit_settings');
+
+  // Search & Sort States for Unit Database
+  const [unitSearchQuery, setUnitSearchQuery] = useState('');
+  const [unitSortBy, setUnitSortBy] = useState<'unitCode' | 'type' | 'brand' | 'status'>('unitCode');
+  const [unitSortOrder, setUnitSortOrder] = useState<'asc' | 'desc'>('asc');
+
+  // Search & Sort States for Employee Database
+  const [empSearchQuery, setEmpSearchQuery] = useState('');
+  const [empSortBy, setEmpSortBy] = useState<'nrp' | 'name' | 'status' | 'rosterPattern'>('nrp');
+  const [empSortOrder, setEmpSortOrder] = useState<'asc' | 'desc'>('asc');
   
   // Setting Submenus
   const [activeSubSetting, setActiveSubSetting] = useState<string>('utama'); // 'utama' or 'master'
   const [expandedSettingId, setExpandedSettingId] = useState<string | null>('s1'); // Expand s1 by default to show image 2 mockup
+  const [settingSearchQuery, setSettingSearchQuery] = useState('');
 
   // Synchronize navigation from the unit dashboard
   React.useEffect(() => {
@@ -109,6 +122,58 @@ export default function SupervisorPanel({
   // Helper map lookups for fast calculations
   const unitMap = useMemo(() => new Map(units.map(u => [u.id, u])), [units]);
   const employeeMap = useMemo(() => new Map(employees.map(e => [e.id, e])), [employees]);
+
+  // Computed and filtered/sorted lists for Database Unit
+  const filteredAndSortedUnits = useMemo(() => {
+    let result = [...units];
+
+    // Filter by search query
+    if (unitSearchQuery.trim()) {
+      const q = unitSearchQuery.toLowerCase();
+      result = result.filter(u => 
+        u.unitCode.toLowerCase().includes(q) || 
+        u.brand.toLowerCase().includes(q) || 
+        u.type.toLowerCase().includes(q)
+      );
+    }
+
+    // Sort by selected property
+    result.sort((a, b) => {
+      const valA = (a[unitSortBy] || '').toString().toLowerCase();
+      const valB = (b[unitSortBy] || '').toString().toLowerCase();
+      if (valA < valB) return unitSortOrder === 'asc' ? -1 : 1;
+      if (valA > valB) return unitSortOrder === 'asc' ? 1 : -1;
+      return 0;
+    });
+
+    return result;
+  }, [units, unitSearchQuery, unitSortBy, unitSortOrder]);
+
+  // Computed and filtered/sorted lists for Database Employees (Karyawan)
+  const filteredAndSortedEmployees = useMemo(() => {
+    let result = [...employees];
+
+    // Filter by search query
+    if (empSearchQuery.trim()) {
+      const q = empSearchQuery.toLowerCase();
+      result = result.filter(e => 
+        e.nrp.toLowerCase().includes(q) || 
+        e.name.toLowerCase().includes(q) ||
+        (e.specializations || []).some(spec => spec.toLowerCase().includes(q))
+      );
+    }
+
+    // Sort by selected property
+    result.sort((a, b) => {
+      const valA = (a[empSortBy] || '').toString().toLowerCase();
+      const valB = (b[empSortBy] || '').toString().toLowerCase();
+      if (valA < valB) return empSortOrder === 'asc' ? -1 : 1;
+      if (valA > valB) return empSortOrder === 'asc' ? 1 : -1;
+      return 0;
+    });
+
+    return result;
+  }, [employees, empSearchQuery, empSortBy, empSortOrder]);
 
   // Handle unit CRUD
   const saveUnit = (e: React.FormEvent) => {
@@ -343,10 +408,36 @@ export default function SupervisorPanel({
     return generateDateRange(previewStartDate, 8);
   }, [previewStartDate]);
 
-  // Split configurations by group for submenus
+  // Split configurations by group for submenus with search & sort defaults by Code
   const groupedSettings = useMemo(() => {
-    return settings.filter(s => s.groupId === activeSubSetting);
-  }, [settings, activeSubSetting]);
+    let list = settings.filter(s => s.groupId === activeSubSetting);
+
+    if (settingSearchQuery.trim()) {
+      const q = settingSearchQuery.toLowerCase();
+      list = list.filter(s => {
+        const isMaster = s.groupId === 'master';
+        const unit = !isMaster ? unitMap.get(s.unitId) : null;
+        const code = isMaster ? (s.masterSlotCode || '') : (unit ? unit.unitCode : '');
+        const brand = isMaster ? '' : (unit ? unit.brand : '');
+        const op1 = employeeMap.get(s.operator1Id);
+        const op2 = employeeMap.get(s.operator2Id);
+        return code.toLowerCase().includes(q) || 
+               brand.toLowerCase().includes(q) ||
+               (op1?.name || '').toLowerCase().includes(q) ||
+               (op2?.name || '').toLowerCase().includes(q);
+      });
+    }
+
+    list.sort((a, b) => {
+      const isMasterA = a.groupId === 'master';
+      const isMasterB = b.groupId === 'master';
+      const codeA = isMasterA ? (a.masterSlotCode || '') : (unitMap.get(a.unitId)?.unitCode || '');
+      const codeB = isMasterB ? (b.masterSlotCode || '') : (unitMap.get(b.unitId)?.unitCode || '');
+      return codeA.localeCompare(codeB, undefined, { numeric: true, sensitivity: 'base' });
+    });
+
+    return list;
+  }, [settings, activeSubSetting, settingSearchQuery, unitMap, employeeMap]);
 
   return (
     <div className="flex flex-col h-full bg-slate-50 text-slate-700" id="supervisor-panel-container">
@@ -415,108 +506,167 @@ export default function SupervisorPanel({
             >
               <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center bg-white p-4 rounded-lg border border-slate-200 gap-4 shadow-sm">
                 <div>
-                  <h3 className="font-extrabold text-slate-800 text-sm">Data Alat Berat</h3>
+                  <h3 className="font-extrabold text-slate-800 text-sm uppercase tracking-wider">Data Alat Berat</h3>
                   <p className="text-xs text-slate-500 mt-0.5">Daftar nomor unit dan jenis alat berat Dept Operation</p>
                 </div>
                 <button
                   id="add-unit-btn"
                   onClick={() => { resetUnitForm(); setUnitFormOpen(true); }}
-                  className="flex items-center gap-1.5 bg-amber-500 hover:bg-amber-600 text-slate-950 font-black text-xs py-2 px-4 rounded transition cursor-pointer"
+                  className="flex items-center gap-1.5 bg-amber-500 hover:bg-amber-600 text-slate-950 font-black text-xs py-2 px-4 rounded transition cursor-pointer shadow-sm"
                 >
                   <Plus className="h-4 w-4" /> Add Unit Baru
                 </button>
               </div>
 
-              {/* Form Modal / Inline Block */}
-              {unitFormOpen && (
-                <div className="bg-white p-5 rounded-lg border border-slate-200 shadow-md transition animate-fadeIn">
-                  <div className="flex items-center justify-between pb-3 mt-1 mb-4 border-b border-slate-100">
-                    <h4 className="font-extrabold text-slate-800 text-sm">
-                      {editingUnit ? `Edit Armada: ${editingUnit.unitCode}` : 'Registrasi Armada Unit Baru'}
-                    </h4>
-                    <button onClick={resetUnitForm} className="text-slate-400 hover:text-slate-600 cursor-pointer">
-                      <X className="h-5 w-5" />
+              {/* Search & Sort Filtering Bar */}
+              <div className="bg-white p-4 rounded-lg border border-slate-200 shadow-sm flex flex-col md:flex-row gap-4 items-center justify-between">
+                <div className="relative w-full md:w-80">
+                  <span className="absolute inset-y-0 left-0 flex items-center pl-3">
+                    <Search className="h-4 w-4 text-slate-400" />
+                  </span>
+                  <input
+                    type="text"
+                    placeholder="Cari Kode Unit, Merek, atau Jenis..."
+                    value={unitSearchQuery}
+                    onChange={(e) => setUnitSearchQuery(e.target.value)}
+                    className="pl-9 pr-4 py-2 w-full bg-slate-50 border border-slate-200 rounded text-xs text-slate-850 focus:outline-none focus:border-amber-500 transition"
+                  />
+                  {unitSearchQuery && (
+                    <button 
+                      onClick={() => setUnitSearchQuery('')} 
+                      className="absolute inset-y-0 right-0 pr-3 flex items-center text-slate-400 hover:text-slate-650 text-[10px] uppercase font-bold"
+                    >
+                      Clear
                     </button>
+                  )}
+                </div>
+                <div className="flex items-center gap-3 w-full md:w-auto shrink-0 justify-end">
+                  <span className="text-[11px] text-slate-500 font-extrabold font-mono uppercase tracking-wider">Urutkan:</span>
+                  <div className="flex items-center gap-1 bg-slate-50 p-1 border border-slate-200 rounded text-xs font-bold">
+                    <select
+                      value={unitSortBy}
+                      onChange={(e) => setUnitSortBy(e.target.value as any)}
+                      className="bg-transparent border-none text-slate-700 p-1 cursor-pointer focus:outline-none"
+                    >
+                      <option value="unitCode">Kode Unit</option>
+                      <option value="type">Kategori Alat</option>
+                      <option value="brand">Nama / Merek</option>
+                      <option value="status">Status Kondisi</option>
+                    </select>
+                    <span className="text-slate-350">|</span>
+                    <select
+                      value={unitSortOrder}
+                      onChange={(e) => setUnitSortOrder(e.target.value as 'asc' | 'desc')}
+                      className="bg-transparent border-none text-amber-600 p-1 cursor-pointer focus:outline-none font-bold"
+                    >
+                      <option value="asc">A-Z (Asc)</option>
+                      <option value="desc">Z-A (Desc)</option>
+                    </select>
                   </div>
+                </div>
+              </div>
 
-                  <form onSubmit={saveUnit} className="grid grid-cols-1 md:grid-cols-4 gap-4 items-end">
-                    <div>
-                      <label className="block text-[10px] uppercase text-slate-500 font-bold mb-1.5">Kode Unit (e.g. DT-01)</label>
-                      <input
-                        type="text"
-                        value={unitCode}
-                        onChange={(e) => setUnitCode(e.target.value)}
-                        placeholder="DT-01"
-                        required
-                        className="w-full bg-slate-50 border border-slate-200 rounded px-3 py-2 text-sm text-slate-800 focus:outline-none focus:border-amber-550 transition"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-[10px] uppercase text-slate-500 font-bold mb-1.5">Merek / Seri Mesin (e.g. Scania P410)</label>
-                      <input
-                        type="text"
-                        value={unitBrand}
-                        onChange={(e) => setUnitBrand(e.target.value)}
-                        placeholder="Volvo FMX / Komatsu"
-                        required
-                        className="w-full bg-slate-50 border border-slate-200 rounded px-3 py-2 text-sm text-slate-800 focus:outline-none focus:border-amber-550 transition"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-[10px] uppercase text-slate-500 font-bold mb-1.5">Kategori Tipe Alat</label>
-                      <select
-                        value={unitType}
-                        onChange={(e) => setUnitType(e.target.value as HeavyUnit['type'])}
-                        className="w-full bg-slate-50 border border-slate-200 rounded px-3 py-2 text-sm text-slate-800 focus:outline-none focus:border-amber-550 transition cursor-pointer font-bold"
-                      >
-                        <option value="Wheel Loader">Wheel Loader (WL)</option>
-                        <option value="Excavator">Excavator (EX)</option>
-                        <option value="Bulldozer">Bulldozer (DZ)</option>
-                        <option value="Reach Stacker">Reach Stacker (RS)</option>
-                        <option value="Forklift">Forklift (FL)</option>
-                        <option value="Dump Truck">Dump Truck (DT)</option>
-                        <option value="Flat Deck">Flat Deck (FD)</option>
-                        <option value="Water Truck">Water Truck (WT)</option>
-                        <option value="Barge Loading Conveyor">Barge Loading Conveyor (BLC)</option>
-                        <option value="Weightbridge">Weightbridge (WB)</option>
-                        <option value="Kapten FD">Kapten FD (KFD)</option>
-                        <option value="Other">Lain-lain / Lainnya</option>
-                      </select>
-                    </div>
-                    <div>
-                      <label className="block text-[10px] uppercase text-slate-500 font-bold mb-1.5">Status Lapangan</label>
-                      <select
-                        value={unitStatus}
-                        onChange={(e) => setUnitStatus(e.target.value as HeavyUnit['status'])}
-                        className="w-full bg-slate-50 border border-slate-200 rounded px-3 py-2 text-sm text-slate-800 focus:outline-none focus:border-amber-550 transition cursor-pointer"
-                      >
-                        <option value="Ready">Ready (Siap Jalan)</option>
-                        <option value="Maintenance">Maintenance (Servis Berkala)</option>
-                        <option value="Breakdown">Breakdown (Mogok / Rusak)</option>
-                      </select>
-                    </div>
-
-                    <div className="md:col-span-4 flex justify-end gap-2 pt-2">
-                      <button
-                        type="button"
-                        onClick={resetUnitForm}
-                        className="px-4 py-2 border border-slate-200 bg-transparent rounded text-xs font-bold text-slate-505 hover:bg-slate-50 transition cursor-pointer"
-                      >
-                        Batalkan
-                      </button>
-                      <button
-                        type="submit"
-                        className="px-4 py-2 bg-amber-500 hover:bg-amber-600 text-slate-950 font-black rounded text-xs transition flex items-center gap-1 cursor-pointer"
-                      >
-                        <Check className="h-3.5 w-3.5" /> Simpan Unit
+              {/* POP-UP CENTERED MODAL FOR ADDING ROW (Satisfies "tidak perlu scrolling" and keeps it elegant) */}
+              {unitFormOpen && !editingUnit && (
+                <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+                  <motion.div 
+                    initial={{ opacity: 0, scale: 0.95 }}
+                    animate={{ opacity: 1, scale: 1 }}
+                    exit={{ opacity: 0, scale: 0.95 }}
+                    className="bg-white p-6 rounded-xl border border-slate-200 shadow-2xl w-full max-w-lg space-y-4"
+                  >
+                    <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+                      <h4 className="font-extrabold text-slate-905 text-sm uppercase tracking-wider flex items-center gap-2">
+                        <Truck className="h-4 w-4 text-amber-500" /> Registrasi Armada Unit Baru
+                      </h4>
+                      <button onClick={resetUnitForm} className="text-slate-400 hover:text-slate-650 cursor-pointer">
+                        <X className="h-5 w-5" />
                       </button>
                     </div>
-                  </form>
+
+                    <form onSubmit={saveUnit} className="space-y-4">
+                      <div className="space-y-3.5">
+                        <div>
+                          <label className="block text-[10px] uppercase text-slate-500 font-bold mb-1.5 font-mono">Kode Unit (e.g. DT-01)</label>
+                          <input
+                            type="text"
+                            value={unitCode}
+                            onChange={(e) => setUnitCode(e.target.value)}
+                            placeholder="DT-01"
+                            required
+                            className="w-full bg-slate-50 border border-slate-200 rounded px-3 py-2 text-xs text-slate-805 focus:outline-none focus:border-amber-500 transition uppercase font-bold"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-[10px] uppercase text-slate-500 font-bold mb-1.5 font-mono">Merek / Seri Mesin (e.g. Scania P410)</label>
+                          <input
+                            type="text"
+                            value={unitBrand}
+                            onChange={(e) => setUnitBrand(e.target.value)}
+                            placeholder="Volvo FMX / Komatsu PC400"
+                            required
+                            className="w-full bg-slate-50 border border-slate-200 rounded px-3 py-2 text-xs text-slate-805 focus:outline-none focus:border-amber-500 transition"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-[10px] uppercase text-slate-500 font-bold mb-1.5 font-mono">Kategori Tipe Alat</label>
+                          <select
+                            value={unitType}
+                            onChange={(e) => setUnitType(e.target.value as HeavyUnit['type'])}
+                            className="w-full bg-slate-50 border border-slate-200 rounded px-3 py-2 text-xs text-slate-800 focus:outline-none focus:border-amber-500 transition cursor-pointer font-bold"
+                          >
+                            <option value="Wheel Loader">Wheel Loader (WL)</option>
+                            <option value="Excavator">Excavator (EX)</option>
+                            <option value="Bulldozer">Bulldozer (DZ)</option>
+                            <option value="Reach Stacker">Reach Stacker (RS)</option>
+                            <option value="Forklift">Forklift (FL)</option>
+                            <option value="Dump Truck">Dump Truck (DT)</option>
+                            <option value="Flat Deck">Flat Deck (FD)</option>
+                            <option value="Water Truck">Water Truck (WT)</option>
+                            <option value="Barge Loading Conveyor">Barge Loading Conveyor (BLC)</option>
+                            <option value="Weightbridge">Weightbridge (WB)</option>
+                            <option value="Kapten FD">Kapten FD (KFD)</option>
+                            <option value="Motor Grader">Motor Grader (GD)</option>
+                            <option value="Compactor">Compactor (VC)</option>
+                            <option value="Other">Lain-lain / Lainnya</option>
+                          </select>
+                        </div>
+                        <div>
+                          <label className="block text-[10px] uppercase text-slate-505 font-bold mb-1.5 font-mono">Status Lapangan</label>
+                          <select
+                            value={unitStatus}
+                            onChange={(e) => setUnitStatus(e.target.value as HeavyUnit['status'])}
+                            className="w-full bg-slate-50 border border-slate-200 rounded px-3 py-2 text-xs text-slate-800 focus:outline-none focus:border-amber-550 transition cursor-pointer font-bold"
+                          >
+                            <option value="Ready">Ready (Siap Jalan)</option>
+                            <option value="Maintenance">Maintenance (Servis Berkala)</option>
+                            <option value="Breakdown">Breakdown (Mogok / Rusak)</option>
+                          </select>
+                        </div>
+                      </div>
+
+                      <div className="flex justify-end gap-2 pt-3 border-t border-slate-100">
+                        <button
+                          type="button"
+                          onClick={resetUnitForm}
+                          className="px-4 py-2 border border-slate-200 bg-transparent rounded text-xs font-bold text-slate-505 hover:bg-slate-50 transition cursor-pointer"
+                        >
+                          Batalkan
+                        </button>
+                        <button
+                          type="submit"
+                          className="px-4 py-2 bg-amber-500 hover:bg-amber-600 text-slate-950 font-black rounded text-xs transition flex items-center gap-1 cursor-pointer"
+                        >
+                          <Check className="h-3.5 w-3.5" /> Simpan Unit
+                        </button>
+                      </div>
+                    </form>
+                  </motion.div>
                 </div>
               )}
 
-              {/* Data Table */}
-              <div className="bg-white rounded-lg border border-slate-200 overflow-hidden shadow-sm">
+              {/* Data Table with Inline Row Pop-up Editor right beneath the selected element */}
+              <div className="bg-white rounded-lg border border-slate-200 overflow-visible shadow-sm">
                 <table className="w-full text-left border-collapse">
                   <thead>
                     <tr className="bg-slate-50 border-b border-slate-200 text-[10px] font-bold text-slate-500 uppercase tracking-wider">
@@ -528,50 +678,162 @@ export default function SupervisorPanel({
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100 text-xs text-slate-700">
-                    {units.map(u => (
-                      <tr key={u.id} className="hover:bg-slate-50 transition">
-                        <td className="p-4 font-extrabold font-mono text-amber-600">{u.unitCode}</td>
-                        <td className="p-4">
-                          <span className="px-2 py-0.5 rounded-sm bg-slate-100 text-slate-700 font-bold text-[10px] uppercase border border-slate-200">
-                            {u.type}
-                          </span>
-                        </td>
-                        <td className="p-4 font-medium text-slate-800">{u.brand}</td>
-                        <td className="p-4">
-                          <span className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[9px] font-bold uppercase border ${
-                            u.status === 'Ready' 
-                              ? 'bg-emerald-50 text-emerald-700 border-emerald-200' 
-                              : u.status === 'Maintenance'
-                                ? 'bg-amber-50 text-amber-700 border-amber-200'
-                                : 'bg-rose-50 text-rose-700 border-rose-200'
-                          }`}>
-                            <span className={`w-1.5 h-1.5 rounded-full ${
-                              u.status === 'Ready' ? 'bg-emerald-500' : u.status === 'Maintenance' ? 'bg-amber-550' : 'bg-rose-500'
-                            }`}></span>
-                            {u.status}
-                          </span>
-                        </td>
-                        <td className="p-4 text-right flex justify-end gap-2">
-                          <button
-                            onClick={() => startEditUnit(u)}
-                            className="p-1.5 text-slate-400 hover:text-amber-600 rounded hover:bg-slate-100 transition cursor-pointer"
-                            title="Edit"
-                          >
-                            <Pencil className="h-4 w-4" />
-                          </button>
-                          <button
-                            onClick={() => deleteUnit(u.id)}
-                            className="p-1.5 text-slate-400 hover:text-rose-600 rounded hover:bg-slate-100 transition cursor-pointer"
-                            title="Delete"
-                          >
-                            <Trash2 className="h-4 w-4" />
-                          </button>
-                        </td>
-                      </tr>
-                    ))}
-                    {units.length === 0 && (
+                    {filteredAndSortedUnits.map(u => {
+                      const isEditing = editingUnit && editingUnit.id === u.id;
+                      return (
+                        <React.Fragment key={u.id}>
+                          <tr className={`hover:bg-slate-50/80 transition-all ${isEditing ? 'bg-amber-50/20 font-medium' : ''}`}>
+                            <td className="p-4 font-extrabold font-mono text-amber-600 text-sm">
+                              {u.unitCode}
+                            </td>
+                            <td className="p-4">
+                              <span className="px-2 py-0.5 rounded-sm bg-slate-100 text-slate-700 font-bold text-[10px] uppercase border border-slate-200 font-mono">
+                                {u.type === 'Motor Grader' ? 'Motor Grader (GD)' : u.type === 'Compactor' ? 'Compactor (VC)' : u.type}
+                              </span>
+                            </td>
+                            <td className="p-4 font-bold text-slate-800">{u.brand}</td>
+                            <td className="p-4">
+                              <span className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[9px] font-bold uppercase border ${
+                                u.status === 'Ready' 
+                                  ? 'bg-emerald-50 text-emerald-700 border-emerald-200' 
+                                  : u.status === 'Maintenance'
+                                    ? 'bg-amber-50 text-amber-700 border-amber-250'
+                                    : 'bg-rose-50 text-rose-700 border-rose-200'
+                              }`}>
+                                <span className={`w-1.5 h-1.5 rounded-full ${
+                                  u.status === 'Ready' ? 'bg-emerald-500 animate-pulse' : u.status === 'Maintenance' ? 'bg-amber-500' : 'bg-rose-500'
+                                }`}></span>
+                                {u.status}
+                              </span>
+                            </td>
+                            <td className="p-4 text-right flex justify-end gap-1.5">
+                              <button
+                                onClick={() => startEditUnit(u)}
+                                className={`p-1.5 rounded transition duration-150 cursor-pointer ${
+                                  isEditing 
+                                    ? 'bg-amber-400 text-slate-950 font-extrabold shadow-sm scale-105' 
+                                    : 'text-slate-400 hover:text-amber-600 hover:bg-slate-100'
+                                }`}
+                                title="Edit Unit (Form di bawah terpilih)"
+                              >
+                                <Pencil className="h-4 w-4" />
+                              </button>
+                              <button
+                                onClick={() => deleteUnit(u.id)}
+                                className="p-1.5 text-slate-400 hover:text-rose-600 rounded hover:bg-slate-100 transition cursor-pointer"
+                                title="Hapus Unit"
+                              >
+                                <Trash2 className="h-4 w-4" />
+                              </button>
+                            </td>
+                          </tr>
+
+                          {/* INLINE POP-UP EDIT FORM (UNDER SELECT TARGET) */}
+                          {isEditing && (
+                            <tr className="bg-amber-50/10" id={`edit-unit-inline-${u.id}`}>
+                              <td colSpan={5} className="p-4 border-y-2 border-amber-400 bg-amber-500/5">
+                                <motion.div
+                                  initial={{ opacity: 0, y: -5 }}
+                                  animate={{ opacity: 1, y: 0 }}
+                                  className="bg-white p-5 rounded-lg border border-amber-200 shadow-md space-y-4"
+                                >
+                                  <div className="flex items-center justify-between pb-2 border-b border-slate-100">
+                                    <h5 className="font-extrabold text-slate-850 text-xs uppercase tracking-wider flex items-center gap-1 text-amber-700 font-mono">
+                                      <Pencil className="h-3.5 w-3.5 text-amber-500" />
+                                      {u.unitCode}
+                                    </h5>
+                                    <button onClick={resetUnitForm} className="text-slate-400 hover:text-slate-650 cursor-pointer">
+                                      <X className="h-4 w-4" />
+                                    </button>
+                                  </div>
+
+                                  <form onSubmit={saveUnit} className="grid grid-cols-1 md:grid-cols-4 gap-4 items-end">
+                                    <div>
+                                      <label className="block text-[10px] uppercase text-slate-500 font-bold mb-1.5 font-mono">Kode Unit (e.g. GD-10)</label>
+                                      <input
+                                        type="text"
+                                        value={unitCode}
+                                        onChange={(e) => setUnitCode(e.target.value)}
+                                        placeholder="GD-10"
+                                        required
+                                        className="w-full bg-slate-50 border border-slate-200 rounded px-2.5 py-1.5 text-xs text-slate-850 focus:outline-none focus:border-amber-500 transition font-extrabold uppercase"
+                                      />
+                                    </div>
+                                    <div>
+                                      <label className="block text-[10px] uppercase text-slate-500 font-bold mb-1.5 font-mono">Merek / Seri Mesin</label>
+                                      <input
+                                        type="text"
+                                        value={unitBrand}
+                                        onChange={(e) => setUnitBrand(e.target.value)}
+                                        placeholder="Caterpillar 14M"
+                                        required
+                                        className="w-full bg-slate-50 border border-slate-200 rounded px-2.5 py-1.5 text-xs text-slate-850 focus:outline-none focus:border-amber-500 transition"
+                                      />
+                                    </div>
+                                    <div>
+                                      <label className="block text-[10px] uppercase text-slate-505 font-bold mb-1.5 font-mono">Kategori Alat</label>
+                                      <select
+                                        value={unitType}
+                                        onChange={(e) => setUnitType(e.target.value as HeavyUnit['type'])}
+                                        className="w-full bg-slate-50 border border-slate-200 rounded px-2.5 py-1.5 text-xs text-slate-850 focus:outline-none focus:border-amber-500 transition font-bold"
+                                      >
+                                        <option value="Wheel Loader">Wheel Loader (WL)</option>
+                                        <option value="Excavator">Excavator (EX)</option>
+                                        <option value="Bulldozer">Bulldozer (DZ)</option>
+                                        <option value="Reach Stacker">Reach Stacker (RS)</option>
+                                        <option value="Forklift">Forklift (FL)</option>
+                                        <option value="Dump Truck">Dump Truck (DT)</option>
+                                        <option value="Flat Deck">Flat Deck (FD)</option>
+                                        <option value="Water Truck">Water Truck (WT)</option>
+                                        <option value="Barge Loading Conveyor">Barge Loading Conveyor (BLC)</option>
+                                        <option value="Weightbridge">Weightbridge (WB)</option>
+                                        <option value="Kapten FD">Kapten FD (KFD)</option>
+                                        <option value="Motor Grader">Motor Grader (GD)</option>
+                                        <option value="Compactor">Compactor (VC)</option>
+                                        <option value="Other">Lain-lain / Lainnya</option>
+                                      </select>
+                                    </div>
+                                    <div>
+                                      <label className="block text-[10px] uppercase text-slate-505 font-bold mb-1.5 font-mono">Status Kondisi</label>
+                                      <select
+                                        value={unitStatus}
+                                        onChange={(e) => setUnitStatus(e.target.value as HeavyUnit['status'])}
+                                        className="w-full bg-slate-50 border border-slate-200 rounded px-2.5 py-1.5 text-xs text-slate-850 focus:outline-none focus:border-amber-500 transition font-bold"
+                                      >
+                                        <option value="Ready">Ready (Siap Jalan)</option>
+                                        <option value="Maintenance">Maintenance (Servis Berkala)</option>
+                                        <option value="Breakdown">Breakdown (Mogok / Rusak)</option>
+                                      </select>
+                                    </div>
+
+                                    <div className="md:col-span-4 flex justify-end gap-2 pt-2 border-t border-slate-100">
+                                      <button
+                                        type="button"
+                                        onClick={resetUnitForm}
+                                        className="px-3.5 py-1.5 border border-slate-200 bg-transparent rounded text-[11px] font-bold text-slate-400 hover:bg-slate-50 transition cursor-pointer animate-none"
+                                      >
+                                        Batal
+                                      </button>
+                                      <button
+                                        type="submit"
+                                        className="px-4 py-1.5 bg-amber-500 hover:bg-amber-600 text-slate-950 font-black rounded text-[11px] transition flex items-center gap-1 cursor-pointer"
+                                      >
+                                        <Check className="h-3.5 w-3.5" /> Simpan Perubahan
+                                      </button>
+                                    </div>
+                                  </form>
+                                </motion.div>
+                              </td>
+                            </tr>
+                          )}
+                        </React.Fragment>
+                      );
+                    })}
+                    {filteredAndSortedUnits.length === 0 && (
                       <tr>
-                        <td colSpan={5} className="p-8 text-center text-slate-500">Database unit kosong. Klik "Add Unit Baru" untuk menambah.</td>
+                        <td colSpan={5} className="p-8 text-center text-slate-500">
+                          {unitSearchQuery ? 'Tidak ada unit yang cocok dengan kriteria pencarian.' : 'Database unit kosong. Klik "Add Unit Baru" untuk menambah.'}
+                        </td>
                       </tr>
                     )}
                   </tbody>
@@ -591,186 +853,377 @@ export default function SupervisorPanel({
             >
               <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center bg-white p-4 rounded-lg border border-slate-200 gap-4 shadow-sm">
                 <div>
-                  <h3 className="font-extrabold text-slate-800 text-sm">Data Manpower Operation</h3>
+                  <h3 className="font-extrabold text-slate-800 text-sm uppercase tracking-wider">Data Manpower Operation</h3>
                   <p className="text-xs text-slate-500 mt-0.5">Daftar karyawan yang dapat mengoperasikan alat berat</p>
                 </div>
                 <button
                   id="add-emp-btn"
                   onClick={() => { resetEmployeeForm(); setEmpFormOpen(true); }}
-                  className="flex items-center gap-1.5 bg-amber-500 hover:bg-amber-600 text-slate-950 font-black text-xs py-2 px-4 rounded transition cursor-pointer"
+                  className="flex items-center gap-1.5 bg-amber-500 hover:bg-amber-600 text-slate-950 font-black text-xs py-2 px-4 rounded transition cursor-pointer shadow-sm animate-none"
                 >
                   <Plus className="h-4 w-4" /> Add Operator Baru
                 </button>
               </div>
 
-              {/* Form Modal/Section */}
-              {empFormOpen && (
-                <div className="bg-white p-5 rounded-lg border border-slate-200 shadow-md transition animate-fadeIn">
-                  <div className="flex items-center justify-between pb-3 mt-1 mb-4 border-b border-slate-100">
-                    <h4 className="font-extrabold text-slate-800 text-sm">
-                      {editingEmp ? `Edit Karyawan: ${editingEmp.name}` : 'Registrasi Karyawan Baru'}
-                    </h4>
-                    <button onClick={resetEmployeeForm} className="text-slate-400 hover:text-slate-600 cursor-pointer">
-                      <X className="h-5 w-5" />
+              {/* Search & Sort Filtering Bar for Employee DB */}
+              <div className="bg-white p-4 rounded-lg border border-slate-200 shadow-sm flex flex-col md:flex-row gap-4 items-center justify-between">
+                <div className="relative w-full md:w-80">
+                  <span className="absolute inset-y-0 left-0 flex items-center pl-3">
+                    <Search className="h-4 w-4 text-slate-400" />
+                  </span>
+                  <input
+                    type="text"
+                    placeholder="Cari NRP, Nama, atau EGI Spesialisasi..."
+                    value={empSearchQuery}
+                    onChange={(e) => setEmpSearchQuery(e.target.value)}
+                    className="pl-9 pr-4 py-2 w-full bg-slate-50 border border-slate-200 rounded text-xs text-slate-850 focus:outline-none focus:border-amber-500 transition"
+                  />
+                  {empSearchQuery && (
+                    <button 
+                      onClick={() => setEmpSearchQuery('')} 
+                      className="absolute inset-y-0 right-0 pr-3 flex items-center text-slate-400 hover:text-slate-655 text-[10px] uppercase font-bold"
+                    >
+                      Clear
                     </button>
+                  )}
+                </div>
+                <div className="flex items-center gap-3 w-full md:w-auto shrink-0 justify-end">
+                  <span className="text-[11px] text-slate-500 font-extrabold font-mono uppercase tracking-wider">Urutkan Karyawan:</span>
+                  <div className="flex items-center gap-1 bg-slate-50 p-1 border border-slate-200 rounded text-xs font-bold">
+                    <select
+                      value={empSortBy}
+                      onChange={(e) => setEmpSortBy(e.target.value as any)}
+                      className="bg-transparent border-none text-slate-700 p-1 cursor-pointer focus:outline-none font-bold"
+                    >
+                      <option value="nrp">NIK Karyawan</option>
+                      <option value="name">Nama Lengkap</option>
+                      <option value="rosterPattern">Default Roster</option>
+                      <option value="status">Status Tugas</option>
+                    </select>
+                    <span className="text-slate-350">|</span>
+                    <select
+                      value={empSortOrder}
+                      onChange={(e) => setEmpSortOrder(e.target.value as 'asc' | 'desc')}
+                      className="bg-transparent border-none text-amber-600 p-1 cursor-pointer focus:outline-none font-bold"
+                    >
+                      <option value="asc">A-Z (Asc)</option>
+                      <option value="desc">Z-A (Desc)</option>
+                    </select>
                   </div>
+                </div>
+              </div>
 
-                  <form onSubmit={saveEmployee} className="grid grid-cols-1 md:grid-cols-4 gap-4 items-end">
-                    <div>
-                      <label className="block text-[10px] uppercase text-slate-500 font-bold mb-1.5">NRP Pekerja (e.g. NRP9901)</label>
-                      <input
-                        type="text"
-                        value={empNrp}
-                        onChange={(e) => setEmpNrp(e.target.value)}
-                        placeholder="NRP99201"
-                        required
-                        className="w-full bg-slate-50 border border-slate-200 rounded px-3 py-2 text-sm text-slate-800 focus:outline-none focus:border-amber-550 transition"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-[10px] uppercase text-slate-500 font-bold mb-1.5">Nama Lengkap Operator</label>
-                      <input
-                        type="text"
-                        value={empName}
-                        onChange={(e) => setEmpName(e.target.value)}
-                        placeholder="BUDI SANTOSO"
-                        required
-                        className="w-full bg-slate-50 border border-slate-200 rounded px-3 py-2 text-sm text-slate-855 focus:outline-none focus:border-amber-550 transition uppercase"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-[10px] uppercase text-slate-500 font-bold mb-1.5">Pola Roster Default</label>
-                      <select
-                        value={empRoster}
-                        onChange={(e) => setEmpRoster(e.target.value as Employee['rosterPattern'])}
-                        className="w-full bg-slate-50 border border-slate-200 rounded px-3 py-2 text-sm text-slate-805 focus:outline-none focus:border-amber-550 transition cursor-pointer font-bold animate-none"
-                      >
-                        <option value="6-1">Roster 6-1 (6 Hari Kerja, 1 Off)</option>
-                        <option value="13-1">Roster 13-1 (13 Hari Kerja, 1 Off)</option>
-                      </select>
-                    </div>
-                    <div>
-                      <label className="block text-[10px] uppercase text-slate-500 font-bold mb-1.5">Status Karyawan</label>
-                      <select
-                        value={empStatus}
-                        onChange={(e) => setEmpStatus(e.target.value as Employee['status'])}
-                        className="w-full bg-slate-50 border border-slate-200 rounded px-3 py-2 text-sm text-slate-805 focus:outline-none focus:border-amber-550 transition cursor-pointer font-bold animate-none"
-                      >
-                        <option value="Active">Aktif Bekerja</option>
-                        <option value="On Leave">Cuti Tahunan</option>
-                        <option value="Sick">Sakit (Medical Leave)</option>
-                        <option value="Inactive">Resign / Non-aktif</option>
-                      </select>
+              {/* POP-UP CENTERED MODAL FOR ADDING EMPLOYEE (Eliminates scrolling, satisfies requirements) */}
+              {empFormOpen && !editingEmp && (
+                <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+                  <motion.div 
+                    initial={{ opacity: 0, scale: 0.95 }}
+                    animate={{ opacity: 1, scale: 1 }}
+                    exit={{ opacity: 0, scale: 0.95 }}
+                    className="bg-white p-6 rounded-xl border border-slate-200 shadow-2xl w-full max-w-lg space-y-4"
+                  >
+                    <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+                      <h4 className="font-extrabold text-slate-905 text-sm uppercase tracking-wider flex items-center gap-2">
+                        <Users className="h-4 w-4 text-amber-500" /> Registrasi Operator Manpower Baru
+                      </h4>
+                      <button onClick={resetEmployeeForm} className="text-slate-400 hover:text-slate-650 cursor-pointer">
+                        <X className="h-5 w-5" />
+                      </button>
                     </div>
 
-                    <div className="md:col-span-4">
-                      <label className="block text-[10px] uppercase text-slate-500 font-bold mb-2">EGI Alat (Dapat memilih lebih dari 1)</label>
-                      <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2 bg-slate-50 p-3 border border-slate-205 rounded max-h-40 overflow-y-auto">
-                        {EQUIPMENT_CATEGORIES.map(category => {
-                          const isChecked = empSpecializations.includes(category);
-                          return (
-                            <label key={category} className="flex items-center gap-2 text-xs text-slate-700 cursor-pointer select-none py-1 hover:text-amber-600 font-medium font-mono">
-                              <input
-                                type="checkbox"
-                                checked={isChecked}
-                                onChange={() => {
-                                  if (isChecked) {
-                                    setEmpSpecializations(prev => prev.filter(x => x !== category));
-                                  } else {
-                                    setEmpSpecializations(prev => [...prev, category]);
-                                  }
-                                }}
-                                className="rounded border-slate-300 text-amber-500 focus:ring-amber-550 cursor-pointer h-4 w-4"
-                              />
-                              <span>{category}</span>
-                            </label>
-                          );
-                        })}
+                    <form onSubmit={saveEmployee} className="space-y-4">
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                        <div>
+                          <label className="block text-[10px] uppercase text-slate-500 font-bold mb-1.5 font-mono">NIK Karyawan (e.g. NIK9901)</label>
+                          <input
+                            type="text"
+                            value={empNrp}
+                            onChange={(e) => setEmpNrp(e.target.value)}
+                            placeholder="NIK99201"
+                            required
+                            className="w-full bg-slate-50 border border-slate-205 rounded px-3 py-2 text-xs text-slate-800 focus:outline-none focus:border-amber-500 transition uppercase font-bold"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-[10px] uppercase text-slate-500 font-bold mb-1.5 font-mono">Nama Lengkap Operator</label>
+                          <input
+                            type="text"
+                            value={empName}
+                            onChange={(e) => setEmpName(e.target.value)}
+                            placeholder="BUDI SANTOSO"
+                            required
+                            className="w-full bg-slate-50 border border-slate-205 rounded px-3 py-2 text-xs text-slate-805 focus:outline-none focus:border-amber-500 transition uppercase"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-[10px] uppercase text-slate-500 font-bold mb-1.5 font-mono">Pola Roster Default</label>
+                          <select
+                            value={empRoster}
+                            onChange={(e) => setEmpRoster(e.target.value as Employee['rosterPattern'])}
+                            className="w-full bg-slate-50 border border-slate-205 rounded px-3 py-2 text-xs text-slate-800 focus:outline-none focus:border-amber-500 transition cursor-pointer font-bold"
+                          >
+                            <option value="6-1">Roster 6-1 (6 Hari Kerja, 1 Off)</option>
+                            <option value="13-1">Roster 13-1 (13 Hari Kerja, 1 Off)</option>
+                          </select>
+                        </div>
+                        <div>
+                          <label className="block text-[10px] uppercase text-slate-500 font-bold mb-1.5 font-mono">Status Pekerja</label>
+                          <select
+                            value={empStatus}
+                            onChange={(e) => setEmpStatus(e.target.value as Employee['status'])}
+                            className="w-full bg-slate-50 border border-slate-205 rounded px-3 py-2 text-xs text-slate-800 focus:outline-none focus:border-amber-550 transition cursor-pointer font-bold"
+                          >
+                            <option value="Active">Aktif Bekerja</option>
+                            <option value="On Leave">Cuti Tahunan</option>
+                            <option value="Sick">Sakit (Medical Leave)</option>
+                            <option value="Inactive">Resign / Non-aktif</option>
+                          </select>
+                        </div>
                       </div>
-                    </div>
 
-                    <div className="md:col-span-4 flex justify-end gap-2 pt-2">
-                      <button
-                        type="button"
-                        onClick={resetEmployeeForm}
-                        className="px-4 py-2 border border-slate-200 bg-transparent rounded text-xs font-bold text-slate-505 hover:bg-slate-50 transition cursor-pointer"
-                      >
-                        Batalkan
-                      </button>
-                      <button
-                        type="submit"
-                        className="px-4 py-2 bg-amber-500 hover:bg-amber-600 text-slate-950 font-black rounded text-xs transition flex items-center gap-1 cursor-pointer"
-                      >
-                        <Check className="h-3.5 w-3.5" /> Simpan Karyawan
-                      </button>
-                    </div>
-                  </form>
+                      <div>
+                        <label className="block text-[10px] uppercase text-slate-550 font-extrabold mb-1.5 font-mono">Spesialisasi EGI Alat</label>
+                        <div className="grid grid-cols-2 gap-2 bg-slate-50 p-3 border border-slate-200 rounded max-h-36 overflow-y-auto">
+                          {EQUIPMENT_CATEGORIES.map(category => {
+                            const isChecked = empSpecializations.includes(category);
+                            return (
+                              <label key={category} className="flex items-center gap-2 text-xs text-slate-700 cursor-pointer select-none py-0.5 hover:text-amber-600 font-bold font-mono">
+                                <input
+                                  type="checkbox"
+                                  checked={isChecked}
+                                  onChange={() => {
+                                    if (isChecked) {
+                                      setEmpSpecializations(prev => prev.filter(x => x !== category));
+                                    } else {
+                                      setEmpSpecializations(prev => [...prev, category]);
+                                    }
+                                  }}
+                                  className="rounded border-slate-300 text-amber-500 focus:ring-amber-550 cursor-pointer h-4 w-4"
+                                />
+                                <span>{category === 'Motor Grader' ? 'Motor Grader (GD)' : category === 'Compactor' ? 'Compactor (VC)' : category}</span>
+                              </label>
+                            );
+                          })}
+                        </div>
+                      </div>
+
+                      <div className="flex justify-end gap-2 pt-3 border-t border-slate-100">
+                        <button
+                          type="button"
+                          onClick={resetEmployeeForm}
+                          className="px-4 py-2 border border-slate-200 bg-transparent rounded text-xs font-bold text-slate-505 hover:bg-slate-50 transition cursor-pointer animate-none"
+                        >
+                          Batalkan
+                        </button>
+                        <button
+                          type="submit"
+                          className="px-4 py-2 bg-amber-500 hover:bg-amber-600 text-slate-950 font-black rounded text-xs transition flex items-center gap-1 cursor-pointer"
+                        >
+                          <Check className="h-3.5 w-3.5" /> Registrasi Operator
+                        </button>
+                      </div>
+                    </form>
+                  </motion.div>
                 </div>
               )}
 
-              {/* Data Table */}
-              <div className="bg-white rounded-lg border border-slate-200 overflow-hidden shadow-sm">
+              {/* Data Table of Employees with inline POP-UP row editor right under selected item */}
+              <div className="bg-white rounded-lg border border-slate-200 overflow-visible shadow-sm">
                 <table className="w-full text-left border-collapse">
                   <thead>
                     <tr className="bg-slate-50 border-b border-slate-200 text-[10px] font-bold text-slate-500 uppercase tracking-wider">
-                      <th className="p-4">NRP Pekerja</th>
+                      <th className="p-4 font-mono">NIK Karyawan</th>
                       <th className="p-4">Nama Lengkap</th>
-                      <th className="p-4">EGI Alat</th>
+                      <th className="p-4">EGI Alat Spesialisasi</th>
                       <th className="p-4">Default Roster</th>
                       <th className="p-4">Status Tugas</th>
                       <th className="p-4 text-right">Aksi</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100 text-xs text-slate-700">
-                    {employees.map(emp => (
-                      <tr key={emp.id} className="hover:bg-slate-50 transition">
-                        <td className="p-4 font-bold font-mono text-amber-600">{emp.nrp}</td>
-                        <td className="p-4 font-black text-slate-800">{emp.name}</td>
-                        <td className="p-4">
-                          <div className="flex flex-wrap gap-1 max-w-[280px]">
-                            {(emp.specializations || []).map(spec => (
-                              <span key={spec} className="px-2 py-0.5 rounded bg-amber-500/10 text-amber-800 font-extrabold text-[9px] border border-amber-500/15 uppercase font-mono">
-                                {spec}
+                    {filteredAndSortedEmployees.map(emp => {
+                      const isEditing = editingEmp && editingEmp.id === emp.id;
+                      return (
+                        <React.Fragment key={emp.id}>
+                          <tr className={`hover:bg-slate-50/80 transition-all ${isEditing ? 'bg-amber-50/20 font-medium' : ''}`}>
+                            <td className="p-4 font-extrabold font-mono text-amber-600 text-sm">
+                              {emp.nrp}
+                            </td>
+                            <td className="p-4 font-black text-slate-800 uppercase">
+                              {emp.name}
+                            </td>
+                            <td className="p-4">
+                              <div className="flex flex-wrap gap-1 max-w-[325px]">
+                                {(emp.specializations || []).map(spec => (
+                                  <span key={spec} className="px-2 py-0.5 rounded bg-amber-500/10 text-amber-800 font-extrabold text-[9px] border border-amber-500/15 uppercase font-mono">
+                                    {spec === 'Motor Grader' ? 'Motor Grader (GD)' : spec === 'Compactor' ? 'Compactor (VC)' : spec}
+                                  </span>
+                                ))}
+                                {(!emp.specializations || emp.specializations.length === 0) && (
+                                  <span className="text-slate-400 italic text-[10px]">Belum di-spesifikasi</span>
+                                )}
+                              </div>
+                            </td>
+                            <td className="p-4 font-bold uppercase text-slate-500 text-[10px] font-mono">
+                              Roster {emp.rosterPattern}
+                            </td>
+                            <td className="p-4">
+                              <span className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[9px] font-bold uppercase border ${
+                                emp.status === 'Active' 
+                                  ? 'bg-emerald-50 text-emerald-700 border-emerald-250' 
+                                  : emp.status === 'On Leave'
+                                    ? 'bg-amber-50 text-amber-700 border-amber-250'
+                                    : 'bg-rose-50 text-rose-700 border-rose-200'
+                              }`}>
+                                <span className={`w-1.5 h-1.5 rounded-full ${
+                                  emp.status === 'Active' ? 'bg-emerald-500 animate-pulse' : emp.status === 'On Leave' ? 'bg-amber-550' : 'bg-rose-500'
+                                }`}></span>
+                                {emp.status === 'Active' ? 'Aktif' : emp.status === 'On Leave' ? 'Cuti' : emp.status === 'Sick' ? 'Sakit' : 'Non-aktif'}
                               </span>
-                            ))}
-                            {(!emp.specializations || emp.specializations.length === 0) && (
-                              <span className="text-slate-400 italic text-[10px]">Belum di-set</span>
-                            )}
-                          </div>
-                        </td>
-                        <td className="p-4 font-bold uppercase text-slate-400 text-[10px]">Roster {emp.rosterPattern}</td>
-                        <td className="p-4">
-                          <span className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded text-[9px] font-bold uppercase border ${
-                            emp.status === 'Active' 
-                              ? 'bg-emerald-50 text-emerald-700 border-emerald-250' 
-                              : emp.status === 'On Leave'
-                                ? 'bg-amber-50 text-amber-700 border-amber-200'
-                                : 'bg-rose-50 text-rose-700 border-rose-200'
-                          }`}>
-                            {emp.status === 'Active' ? 'Aktif' : emp.status === 'On Leave' ? 'Cuti' : emp.status}
-                          </span>
-                        </td>
-                        <td className="p-4 text-right flex justify-end gap-2">
-                          <button
-                            onClick={() => startEditEmployee(emp)}
-                            className="p-1.5 text-slate-400 hover:text-amber-600 rounded hover:bg-slate-100 transition cursor-pointer"
-                            title="Edit"
-                          >
-                            <Pencil className="h-4 w-4" />
-                          </button>
-                          <button
-                            onClick={() => deleteEmployee(emp.id)}
-                            className="p-1.5 text-slate-400 hover:text-rose-600 rounded hover:bg-slate-100 transition cursor-pointer"
-                            title="Delete"
-                          >
-                            <Trash2 className="h-4 w-4" />
-                          </button>
-                        </td>
-                      </tr>
-                    ))}
-                    {employees.length === 0 && (
+                            </td>
+                            <td className="p-4 text-right flex justify-end gap-1.5">
+                              <button
+                                onClick={() => startEditEmployee(emp)}
+                                className={`p-1.5 rounded transition duration-150 cursor-pointer ${
+                                  isEditing 
+                                    ? 'bg-amber-400 text-slate-950 font-extrabold shadow-sm scale-105' 
+                                    : 'text-slate-400 hover:text-amber-600 hover:bg-slate-100'
+                                }`}
+                                title="Edit Karyawan (Form di bawah terpilih)"
+                              >
+                                <Pencil className="h-4 w-4" />
+                              </button>
+                              <button
+                                onClick={() => deleteEmployee(emp.id)}
+                                className="p-1.5 text-slate-400 hover:text-rose-600 rounded hover:bg-slate-100 transition cursor-pointer"
+                                title="Hapus Karyawan"
+                              >
+                                <Trash2 className="h-4 w-4" />
+                              </button>
+                            </td>
+                          </tr>
+
+                          {/* INLINE POP-UP EDIT FORM RIGHT UNDER SELECT TARGET */}
+                          {isEditing && (
+                            <tr className="bg-amber-50/10" id={`edit-emp-inline-${emp.id}`}>
+                              <td colSpan={6} className="p-4 border-y-2 border-amber-400 bg-amber-500/5">
+                                <motion.div
+                                  initial={{ opacity: 0, y: -5 }}
+                                  animate={{ opacity: 1, y: 0 }}
+                                  className="bg-white p-5 rounded-lg border border-amber-200 shadow-md space-y-4"
+                                >
+                                  <div className="flex items-center justify-between pb-2 border-b border-slate-100">
+                                    <h5 className="font-extrabold text-slate-800 text-xs uppercase tracking-wider flex items-center gap-1 text-amber-700">
+                                      <Pencil className="h-3.5 w-3.5 text-amber-500 animate-pulse" />
+                                      Panel Edit Di-Bawah: {emp.name} ({emp.nrp})
+                                    </h5>
+                                    <button onClick={resetEmployeeForm} className="text-slate-400 hover:text-slate-650 cursor-pointer">
+                                      <X className="h-4 w-4" />
+                                    </button>
+                                  </div>
+
+                                  <form onSubmit={saveEmployee} className="grid grid-cols-1 md:grid-cols-4 gap-4 items-end">
+                                    <div>
+                                      <label className="block text-[10px] uppercase text-slate-500 font-bold mb-1.5 font-mono">NIK Karyawan</label>
+                                      <input
+                                        type="text"
+                                        value={empNrp}
+                                        onChange={(e) => setEmpNrp(e.target.value)}
+                                        placeholder="NIK9901"
+                                        required
+                                        className="w-full bg-slate-50 border border-slate-200 rounded px-2.5 py-1.5 text-xs text-slate-850 focus:outline-none focus:border-amber-550 transition font-extrabold uppercase"
+                                      />
+                                    </div>
+                                    <div>
+                                      <label className="block text-[10px] uppercase text-slate-500 font-bold mb-1.5 font-mono">Nama Lengkap</label>
+                                      <input
+                                        type="text"
+                                        value={empName}
+                                        onChange={(e) => setEmpName(e.target.value)}
+                                        placeholder="NAMA LENGKAP"
+                                        required
+                                        className="w-full bg-slate-50 border border-slate-200 rounded px-2.5 py-1.5 text-xs text-slate-850 focus:outline-none focus:border-amber-550 transition uppercase font-black"
+                                      />
+                                    </div>
+                                    <div>
+                                      <label className="block text-[10px] uppercase text-slate-505 font-bold mb-1.5 font-mono">Pola Roster</label>
+                                      <select
+                                        value={empRoster}
+                                        onChange={(e) => setEmpRoster(e.target.value as Employee['rosterPattern'])}
+                                        className="w-full bg-slate-50 border border-slate-200 rounded px-2.5 py-1.5 text-xs text-slate-850 focus:outline-none focus:border-amber-500 transition font-bold cursor-pointer"
+                                      >
+                                        <option value="6-1">Roster 6-1 (6 Hari Kerja, 1 Off)</option>
+                                        <option value="13-1">Roster 13-1 (13 Hari Kerja, 1 Off)</option>
+                                      </select>
+                                    </div>
+                                    <div>
+                                      <label className="block text-[10px] uppercase text-slate-505 font-bold mb-1.5 font-mono">Status Ketenagakerjaan</label>
+                                      <select
+                                        value={empStatus}
+                                        onChange={(e) => setEmpStatus(e.target.value as Employee['status'])}
+                                        className="w-full bg-slate-50 border border-slate-200 rounded px-2.5 py-1.5 text-xs text-slate-850 focus:outline-none focus:border-amber-500 transition font-bold cursor-pointer"
+                                      >
+                                        <option value="Active">Aktif Bekerja</option>
+                                        <option value="On Leave">Cuti Tahunan</option>
+                                        <option value="Sick">Sakit (Medical Leave)</option>
+                                        <option value="Inactive">Resign / Non-aktif</option>
+                                      </select>
+                                    </div>
+
+                                    <div className="md:col-span-4">
+                                      <label className="block text-[10px] uppercase text-slate-505 font-bold mb-1.5 font-mono">Daftar EGI Alat Spesialisasi (Silakan pilih & ubah)</label>
+                                      <div className="grid grid-cols-2 md:grid-cols-4 gap-2 bg-slate-50 p-2.5 border border-slate-150 rounded max-h-24 overflow-y-auto">
+                                        {EQUIPMENT_CATEGORIES.map(category => {
+                                          const isChecked = empSpecializations.includes(category);
+                                          return (
+                                            <label key={category} className="flex items-center gap-2 text-[11px] text-slate-700 cursor-pointer py-0.5 hover:text-amber-600 font-bold font-mono">
+                                              <input
+                                                type="checkbox"
+                                                checked={isChecked}
+                                                onChange={() => {
+                                                  if (isChecked) {
+                                                    setEmpSpecializations(prev => prev.filter(x => x !== category));
+                                                  } else {
+                                                    setEmpSpecializations(prev => [...prev, category]);
+                                                  }
+                                                }}
+                                                className="rounded border-slate-300 text-amber-500 focus:ring-amber-500 cursor-pointer h-3.5 w-3.5"
+                                              />
+                                              <span>{category === 'Motor Grader' ? 'Motor Grader (GD)' : category === 'Compactor' ? 'Compactor (VC)' : category}</span>
+                                            </label>
+                                          );
+                                        })}
+                                      </div>
+                                    </div>
+
+                                    <div className="md:col-span-4 flex justify-end gap-2 pt-2 border-t border-slate-100">
+                                      <button
+                                        type="button"
+                                        onClick={resetEmployeeForm}
+                                        className="px-3.5 py-1.5 border border-slate-200 bg-transparent rounded text-[11px] font-bold text-slate-400 hover:bg-slate-50 transition cursor-pointer"
+                                      >
+                                        Batal
+                                      </button>
+                                      <button
+                                        type="submit"
+                                        className="px-4 py-1.5 bg-amber-500 hover:bg-amber-600 text-slate-950 font-black rounded text-[11px] transition flex items-center gap-1 cursor-pointer"
+                                      >
+                                        <Check className="h-3.5 w-3.5" /> Simpan Perubahan
+                                      </button>
+                                    </div>
+                                  </form>
+                                </motion.div>
+                              </td>
+                            </tr>
+                          )}
+                        </React.Fragment>
+                      );
+                    })}
+                    {filteredAndSortedEmployees.length === 0 && (
                       <tr>
-                        <td colSpan={6} className="p-8 text-center text-slate-500">Database karyawan kosong. Hubungi admin atau tambah di atas.</td>
+                        <td colSpan={6} className="p-8 text-center text-slate-500">
+                          {empSearchQuery ? 'Tidak ada karyawan yang cocok dengan kriteria pencarian.' : 'Database karyawan kosong.'}
+                        </td>
                       </tr>
                     )}
                   </tbody>
@@ -833,6 +1286,34 @@ export default function SupervisorPanel({
                 >
                   <Plus className="h-4 w-4" /> Setting Unit Baru
                 </button>
+              </div>
+
+              {/* Search Bar for Unit Settings */}
+              <div className="bg-white p-4 rounded-lg border border-slate-200 shadow-sm flex flex-col sm:flex-row gap-4 items-center justify-between">
+                <div className="relative w-full sm:w-80">
+                  <span className="absolute inset-y-0 left-0 flex items-center pl-3 pointer-events-none">
+                    <Search className="h-4 w-4 text-slate-400" />
+                  </span>
+                  <input
+                    id="setting-search"
+                    type="text"
+                    placeholder="Cari kode unit, slot, atau operator..."
+                    value={settingSearchQuery}
+                    onChange={(e) => setSettingSearchQuery(e.target.value)}
+                    className="pl-9 pr-8 py-2 w-full bg-slate-50 border border-slate-200 rounded text-xs text-slate-850 placeholder:text-slate-400 focus:outline-none focus:border-amber-500 transition font-bold"
+                  />
+                  {settingSearchQuery && (
+                    <button 
+                      onClick={() => setSettingSearchQuery('')} 
+                      className="absolute inset-y-0 right-0 pr-3 flex items-center text-slate-400 hover:text-slate-650 text-[10px] uppercase font-bold cursor-pointer"
+                    >
+                      CLEAR
+                    </button>
+                  )}
+                </div>
+                <div className="text-[10px] text-slate-400 font-mono font-bold uppercase tracking-wider">
+                  Sortir Default: Kode Unit / Slot Master
+                </div>
               </div>
 
               {/* Setting Unit Setup Form */}
@@ -1250,8 +1731,10 @@ export default function SupervisorPanel({
                   })}
 
                   {groupedSettings.length === 0 && (
-                    <div className="p-8 text-center text-slate-500 text-xs">
-                      Tidak ada penugasan terdaftar untuk grup ini. Silahkan klik "Setting Unit Baru" di atas.
+                    <div className="p-8 text-center text-slate-500 text-xs font-mono font-bold uppercase">
+                      {settingSearchQuery.trim() 
+                        ? `Tidak ada settingan unit cocok dengan kata kunci: "${settingSearchQuery}"` 
+                        : 'Tidak ada penugasan terdaftar untuk grup ini. Silahkan klik "Setting Unit Baru" di atas.'}
                     </div>
                   )}
                 </div>
