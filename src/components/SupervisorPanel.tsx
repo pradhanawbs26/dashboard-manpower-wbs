@@ -1561,14 +1561,9 @@ export default function SupervisorPanel({
                                 className="w-full bg-white border border-slate-200 rounded px-2.5 py-1.5 text-xs text-slate-808 font-bold cursor-pointer focus:outline-none focus:border-amber-500"
                               >
                                 <option value="">-- Tanpa Prioritas --</option>
-                                <option value="Flat Deck">Flat Deck</option>
-                                <option value="Dump Truck">Dump Truck</option>
-                                <option value="Water Truck">Water Truck</option>
-                                <option value="Wheel Loader">Wheel Loader</option>
-                                <option value="Excavator">Excavator</option>
-                                <option value="Bulldozer">Bulldozer</option>
-                                <option value="Motor Grader">Motor Grader</option>
-                                <option value="Compactor">Compactor</option>
+                                {EQUIPMENT_CATEGORIES.map(cat => (
+                                  <option key={cat} value={cat}>{cat}</option>
+                                ))}
                               </select>
                             </div>
 
@@ -1581,14 +1576,9 @@ export default function SupervisorPanel({
                                 className="w-full bg-white border border-slate-200 rounded px-2.5 py-1.5 text-xs text-slate-808 font-bold cursor-pointer focus:outline-none focus:border-amber-500"
                               >
                                 <option value="">-- Tanpa Prioritas --</option>
-                                <option value="Flat Deck">Flat Deck</option>
-                                <option value="Dump Truck">Dump Truck</option>
-                                <option value="Water Truck">Water Truck</option>
-                                <option value="Wheel Loader">Wheel Loader</option>
-                                <option value="Excavator">Excavator</option>
-                                <option value="Bulldozer">Bulldozer</option>
-                                <option value="Motor Grader">Motor Grader</option>
-                                <option value="Compactor">Compactor</option>
+                                {EQUIPMENT_CATEGORIES.map(cat => (
+                                  <option key={cat} value={cat}>{cat}</option>
+                                ))}
                               </select>
                             </div>
 
