@@ -4,7 +4,7 @@
  */
 
 import React, { useState, useEffect } from 'react';
-import { HeavyUnit, Employee, UnitSetting, UnitGroup } from './types';
+import { HeavyUnit, Employee, UnitSetting, UnitGroup, BackupTransfer } from './types';
 import { 
   INITIAL_UNITS, 
   INITIAL_EMPLOYEES, 
@@ -58,6 +58,11 @@ export default function App() {
     return saved ? JSON.parse(saved) : INITIAL_GROUPS;
   });
 
+  const [backupTransfers, setBackupTransfers] = useState<BackupTransfer[]>(() => {
+    const saved = localStorage.getItem('wbs_hauling_clean_v1_backupTransfers');
+    return saved ? JSON.parse(saved) : [];
+  });
+
   // Selected date defaults to current date in Waktu Indonesia Barat (WIB - UTC+7)
   const [selectedDate, setSelectedDate] = useState<string>(() => {
     const now = new Date();
@@ -82,6 +87,7 @@ export default function App() {
   const latestEmployeesRef = React.useRef(employees);
   const latestSettingsRef = React.useRef(settings);
   const latestGroupsRef = React.useRef(groups);
+  const latestBackupTransfersRef = React.useRef(backupTransfers);
 
   useEffect(() => {
     latestUnitsRef.current = units;
@@ -98,6 +104,10 @@ export default function App() {
   useEffect(() => {
     latestGroupsRef.current = groups;
   }, [groups]);
+
+  useEffect(() => {
+    latestBackupTransfersRef.current = backupTransfers;
+  }, [backupTransfers]);
 
   // Sync real-time Firestore collections onto states automatically
   useEffect(() => {
@@ -181,11 +191,30 @@ export default function App() {
       handleFirestoreError(error, OperationType.GET, 'unitSettings');
     });
 
+    const unsubBackupTransfers = onSnapshot(collection(db, 'backupTransfers'), (snapshot) => {
+      const list: BackupTransfer[] = [];
+      snapshot.forEach(doc => {
+        list.push(doc.data() as BackupTransfer);
+      });
+      if (snapshot.empty && latestBackupTransfersRef.current.length > 0) {
+        latestBackupTransfersRef.current.forEach(item => {
+          saveDocument('backupTransfers', item.id, item);
+        });
+      } else {
+        setBackupTransfers(list);
+      }
+      setCloudSynced(true);
+      setCloudError(null);
+    }, (error) => {
+      // Allow passing through errors for backup transfers gracefully
+    });
+
     return () => {
       unsubUnits();
       unsubEmployees();
       unsubGroups();
       unsubSettings();
+      unsubBackupTransfers();
     };
   }, []);
 
@@ -250,6 +279,22 @@ export default function App() {
     });
   };
 
+  const customSetBackupTransfers = (value: React.SetStateAction<BackupTransfer[]>) => {
+    setBackupTransfers(value);
+    const nextVal = typeof value === 'function' ? (value as any)(latestBackupTransfersRef.current) : value;
+    nextVal.forEach((item: BackupTransfer) => {
+      const existingItem = latestBackupTransfersRef.current.find(b => b.id === item.id);
+      if (!existingItem || JSON.stringify(existingItem) !== JSON.stringify(item)) {
+        saveDocument('backupTransfers', item.id, item);
+      }
+    });
+    latestBackupTransfersRef.current.forEach((item: BackupTransfer) => {
+      if (!nextVal.find(b => b.id === item.id)) {
+        removeDocument('backupTransfers', item.id);
+      }
+    });
+  };
+
   // 2. Persist states in localStorage as fallback backup
   useEffect(() => {
     localStorage.setItem('wbs_hauling_clean_v1_units', JSON.stringify(units));
@@ -264,6 +309,10 @@ export default function App() {
   }, [settings]);
 
   useEffect(() => {
+    localStorage.setItem('wbs_hauling_clean_v1_backupTransfers', JSON.stringify(backupTransfers));
+  }, [backupTransfers]);
+
+  useEffect(() => {
     localStorage.setItem('wbs_hauling_clean_v1_groups', JSON.stringify(groups));
   }, [groups]);
 
@@ -273,6 +322,7 @@ export default function App() {
       customSetUnits(INITIAL_UNITS);
       customSetEmployees(INITIAL_EMPLOYEES);
       customSetSettings(INITIAL_SETTINGS);
+      customSetBackupTransfers([]);
       setGroups(INITIAL_GROUPS);
       setSelectedDate('2026-06-04');
       alert('Sistem berhasil direset!');
@@ -400,6 +450,7 @@ export default function App() {
               employees={employees}
               settings={settings}
               groups={groups}
+              backupTransfers={backupTransfers}
               selectedDate={selectedDate}
               setSelectedDate={setSelectedDate}
               onNavigateToSetting={handleNavigateToSetting}
@@ -421,6 +472,8 @@ export default function App() {
               settings={settings}
               setSettings={customSetSettings}
               groups={groups}
+              backupTransfers={backupTransfers}
+              setBackupTransfers={customSetBackupTransfers}
               selectedDate={selectedDate}
               activeSettingIdForPanel={activeSettingIdForPanel}
               setActiveSettingIdForPanel={setActiveSettingIdForPanel}

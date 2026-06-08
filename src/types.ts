@@ -42,6 +42,14 @@ export interface UnitSetting {
   backupPriorityUnitId2?: string;
 }
 
+export interface BackupTransfer {
+  id: string;
+  operatorId: string;    // references Employee.id
+  targetUnitId: string;  // references HeavyUnit.id
+  date: string;          // YYYY-MM-DD
+  shift: 1 | 2;          // 1 = Siang, 2 = Malam
+}
+
 export interface ShiftInfo {
   operator1Role: 'S' | 'M' | 'OFF'; // S = Siang (Shift 1), M = Malam (Shift 2)
   operator2Role: 'S' | 'M' | 'OFF';

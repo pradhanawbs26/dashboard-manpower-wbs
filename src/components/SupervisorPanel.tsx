@@ -4,11 +4,11 @@
  */
 
 import React, { useState, useMemo } from 'react';
-import { HeavyUnit, Employee, UnitSetting, UnitGroup } from '../types';
+import { HeavyUnit, Employee, UnitSetting, UnitGroup, BackupTransfer } from '../types';
 import { calculateShift, generateDateRange, formatIndonesianDayName, formatIndonesianDate } from '../utils/scheduler';
 import { 
   Building2, Truck, Users, Settings, Plus, Pencil, Trash2, Check, X, 
-  HelpCircle, AlertCircle, Info, Calendar, CalendarDays, Eye, RefreshCw, Search 
+  HelpCircle, AlertCircle, Info, Calendar, CalendarDays, Eye, RefreshCw, Search, Sun, Moon
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
@@ -37,6 +37,8 @@ interface SupervisorPanelProps {
   settings: UnitSetting[];
   setSettings: React.Dispatch<React.SetStateAction<UnitSetting[]>>;
   groups: UnitGroup[];
+  backupTransfers: BackupTransfer[];
+  setBackupTransfers: React.Dispatch<React.SetStateAction<BackupTransfer[]>>;
   selectedDate: string; // From parent for calendar preview sync
   activeSettingIdForPanel?: string | null;
   setActiveSettingIdForPanel?: React.Dispatch<React.SetStateAction<string | null>>;
@@ -50,12 +52,14 @@ export default function SupervisorPanel({
   settings,
   setSettings,
   groups,
+  backupTransfers,
+  setBackupTransfers,
   selectedDate,
   activeSettingIdForPanel,
   setActiveSettingIdForPanel
 }: SupervisorPanelProps) {
   // Main Navigation Menu Tabs (Jendela 2)
-  const [activeMenu, setActiveMenu] = useState<'unit_db' | 'employee_db' | 'unit_settings'>('unit_settings');
+  const [activeMenu, setActiveMenu] = useState<'unit_db' | 'employee_db' | 'unit_settings' | 'backup_settings'>('unit_settings');
 
   // Search & Sort States for Unit Database
   const [unitSearchQuery, setUnitSearchQuery] = useState('');
@@ -119,6 +123,20 @@ export default function SupervisorPanel({
   const [setBackupPriorityType2, setSetBackupPriorityType2] = useState('');
   const [setBackupPriorityUnitId1, setSetBackupPriorityUnitId1] = useState('');
   const [setBackupPriorityUnitId2, setSetBackupPriorityUnitId2] = useState('');
+
+  // Backup Transfer states
+  const [backupFormOpen, setBackupFormOpen] = useState(false);
+  const [editingBackup, setEditingBackup] = useState<BackupTransfer | null>(null);
+  const [backupOperatorId, setBackupOperatorId] = useState('');
+  const [backupTargetUnitId, setBackupTargetUnitId] = useState('');
+  const [backupDate, setBackupDate] = useState(selectedDate);
+  const [backupShift, setBackupShift] = useState<1 | 2>(1);
+
+  React.useEffect(() => {
+    if (!backupDate) {
+      setBackupDate(selectedDate);
+    }
+  }, [selectedDate]);
 
   // 8-Day rolling calendar starting point for setting previews (mimics Image 2)
   const [previewStartDate, setPreviewStartDate] = useState('2026-06-01');
@@ -293,11 +311,11 @@ export default function SupervisorPanel({
       alert('Mohon isi Nomor Slot Master (e.g. M-1, M-2)!');
       return;
     }
-    if (!setOp1Id || !setOp2Id) {
-      alert('Mohon pilih kedua Operator (Shift 1 & 2)!');
+    if (!setOp1Id && !setOp2Id) {
+      alert('Mohon pilih minimal satu Operator untuk dikonfigurasi!');
       return;
     }
-    if (setOp1Id === setOp2Id) {
+    if (setOp1Id && setOp2Id && setOp1Id === setOp2Id) {
       alert('Operator 1 dan Operator 2 tidak boleh orang yang sama!');
       return;
     }
@@ -480,7 +498,20 @@ export default function SupervisorPanel({
             }`}
           >
             <CalendarDays className="h-4 w-4" />
-            <span>SETTINGAN UNIT</span>
+            <span>SETTINGAN OPERATOR</span>
+          </button>
+
+          <button
+            id="tab-settings-backup"
+            onClick={() => setActiveMenu('backup_settings')}
+            className={`flex items-center gap-2 px-4 py-2.5 text-[10px] font-black uppercase tracking-widest border-b-2 transition-all cursor-pointer ${
+              activeMenu === 'backup_settings'
+                ? 'border-amber-500 text-amber-600'
+                : 'border-transparent text-slate-500 hover:text-slate-800'
+            }`}
+          >
+            <RefreshCw className="h-4 w-4 text-indigo-505 shrink-0" />
+            <span>SETTINGAN BACKUP</span>
           </button>
 
           <button
@@ -1443,10 +1474,9 @@ export default function SupervisorPanel({
                         <select
                           value={setOp1Id}
                           onChange={(e) => setSetOp1Id(e.target.value)}
-                          required
                           className="w-full bg-slate-50 border border-slate-200 rounded px-3 py-2 text-sm text-slate-808 focus:outline-none focus:border-amber-550 font-bold cursor-pointer"
                         >
-                          <option value="">-- Pilih Operator 1 --</option>
+                          <option value="">-- Kosong / Tanpa Operator --</option>
                           {employees.map(emp => (
                             <option key={emp.id} value={emp.id} disabled={emp.id === setOp2Id}>
                               {emp.name} ({emp.nrp} - Roster {emp.rosterPattern})
@@ -1462,10 +1492,9 @@ export default function SupervisorPanel({
                         <select
                           value={setOp2Id}
                           onChange={(e) => setSetOp2Id(e.target.value)}
-                          required
                           className="w-full bg-slate-50 border border-slate-200 rounded px-3 py-2 text-sm text-slate-808 focus:outline-none focus:border-amber-550 font-bold cursor-pointer"
                         >
-                          <option value="">-- Pilih Operator 2 --</option>
+                          <option value="">-- Kosong / Tanpa Operator --</option>
                           {employees.map(emp => (
                             <option key={emp.id} value={emp.id} disabled={emp.id === setOp1Id}>
                               {emp.name} ({emp.nrp} - Roster {emp.rosterPattern})
@@ -1874,6 +1903,331 @@ export default function SupervisorPanel({
                         : 'Tidak ada penugasan terdaftar untuk grup ini. Silahkan klik "Setting Unit Baru" di atas.'}
                     </div>
                   )}
+                </div>
+              </div>
+            </motion.div>
+          )}
+
+          {/* ==================== MENU 4: SETTINGAN BACKUP ==================== */}
+          {activeMenu === 'backup_settings' && (
+            <motion.div
+              key="menu-backup-settings"
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -10 }}
+              transition={{ duration: 0.15 }}
+              className="space-y-6"
+              id="menu-panel-backup-settings"
+            >
+              {/* Header Box with Stats summary */}
+              <div className="bg-white p-5 rounded-lg border border-slate-200 shadow-sm flex flex-col md:flex-row md:items-center md:justify-between gap-4 animate-in fade-in duration-100">
+                <div className="space-y-1">
+                  <div className="flex items-center gap-2">
+                    <span className="p-1.5 bg-indigo-50 border border-indigo-100 rounded-lg text-indigo-600">
+                      <RefreshCw className="h-5 w-5 animate-spin-slow" />
+                    </span>
+                    <h3 className="font-extrabold text-slate-800 text-base">Settingan Backup Operator</h3>
+                  </div>
+                  <p className="text-xs text-slate-500 leading-relaxed max-w-xl font-medium">
+                    Atur pemindahan/pengalihan operator utama atau master ke unit alat berat lain secara khusus pada tanggal dan shift kerja tertentu di luar jadwal rutin mereka.
+                  </p>
+                </div>
+                {!backupFormOpen && (
+                  <button
+                    onClick={() => {
+                      setEditingBackup(null);
+                      setBackupOperatorId('');
+                      setBackupTargetUnitId('');
+                      setBackupDate(selectedDate);
+                      setBackupShift(1);
+                      setBackupFormOpen(true);
+                    }}
+                    className="self-start md:self-auto px-4 py-2 text-xs font-black uppercase tracking-widest bg-indigo-600 hover:bg-indigo-700 text-white rounded shadow-sm hover:shadow transition flex items-center gap-1.5 cursor-pointer text-center"
+                  >
+                    <Plus className="h-4 w-4" /> TAMBAH BACKUP BARU
+                  </button>
+                )}
+              </div>
+
+              {/* Form Box (Visible when adding or editing) */}
+              {backupFormOpen && (
+                <div className="bg-white rounded-lg border border-indigo-200/50 shadow-md p-6 space-y-4 animate-in fade-in zoom-in-95 duration-150">
+                  <div className="flex items-center justify-between border-b border-indigo-100 pb-3">
+                    <div className="flex items-center gap-2">
+                      <span className="w-2.5 h-2.5 rounded-full bg-indigo-600 animate-pulse"></span>
+                      <h4 className="font-extrabold text-slate-850 text-sm">
+                        {editingBackup ? 'Edit Penugasan Backup' : 'Pengaturan Operator Yang Membackup'}
+                      </h4>
+                    </div>
+                    <button
+                      onClick={() => setBackupFormOpen(false)}
+                      className="p-1 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded transition cursor-pointer"
+                    >
+                      <X className="h-4 w-4" />
+                    </button>
+                  </div>
+
+                  <form
+                    onSubmit={(e) => {
+                      e.preventDefault();
+                      if (!backupOperatorId) {
+                        alert('Mohon pilih Operator!');
+                        return;
+                      }
+                      if (!backupTargetUnitId) {
+                        alert('Mohon pilih Unit Alat Barat Tujuan!');
+                        return;
+                      }
+                      if (!backupDate) {
+                        alert('Mohon tentukan Tanggal!');
+                        return;
+                      }
+
+                      // Check double booking for same operator on same date and shift
+                      const hasConf = (backupTransfers || []).some(
+                        bt => bt.operatorId === backupOperatorId &&
+                              bt.date === backupDate &&
+                              Number(bt.shift) === Number(backupShift) &&
+                              (!editingBackup || bt.id !== editingBackup.id)
+                      );
+                      if (hasConf) {
+                        alert('Operator ini sudah mempunyai tugas mobilisasi backup lain di hari & shift yang sama!');
+                        return;
+                      }
+
+                      if (editingBackup) {
+                        setBackupTransfers(prev => prev.map(bt => bt.id === editingBackup.id
+                          ? {
+                              ...bt,
+                              operatorId: backupOperatorId,
+                              targetUnitId: backupTargetUnitId,
+                              date: backupDate,
+                              shift: Number(backupShift) as 1 | 2
+                            }
+                          : bt
+                        ));
+                      } else {
+                        const newBT: BackupTransfer = {
+                          id: 'bt_' + Date.now(),
+                          operatorId: backupOperatorId,
+                          targetUnitId: backupTargetUnitId,
+                          date: backupDate,
+                          shift: Number(backupShift) as 1 | 2
+                        };
+                        setBackupTransfers(prev => [...prev, newBT]);
+                      }
+                      setBackupFormOpen(false);
+                      setEditingBackup(null);
+                    }}
+                    className="grid grid-cols-1 md:grid-cols-4 gap-5"
+                  >
+                    {/* Operator Selector */}
+                    <div>
+                      <label className="block text-[10px] uppercase text-indigo-700 font-extrabold mb-1.5 font-mono">1. Pilih Operator</label>
+                      <select
+                        value={backupOperatorId}
+                        onChange={(e) => setBackupOperatorId(e.target.value)}
+                        required
+                        className="w-full bg-slate-50 border border-slate-200 rounded px-3 py-2 text-sm text-slate-808 font-bold focus:outline-none focus:border-indigo-500 cursor-pointer"
+                      >
+                        <option value="">-- Pilih Operator --</option>
+                        {employees.filter(emp => emp.status === 'Active').map(emp => {
+                          const originalUnitSetting = settings.find(s => s.operator1Id === emp.id || s.operator2Id === emp.id);
+                          const isMaster = originalUnitSetting?.groupId === 'master';
+                          const originalUnitCode = originalUnitSetting
+                            ? isMaster 
+                              ? `Master Slot ${originalUnitSetting.masterSlotCode}`
+                              : `Unit ${unitMap.get(originalUnitSetting.unitId)?.unitCode || 'U-?'}`
+                            : 'Pool Standby';
+
+                          return (
+                            <option key={emp.id} value={emp.id}>
+                              {emp.name} ({emp.nrp} - Roster {emp.rosterPattern}) [{originalUnitCode}]
+                            </option>
+                          );
+                        })}
+                      </select>
+                    </div>
+
+                    {/* Target Unit Selector */}
+                    <div>
+                      <label className="block text-[10px] uppercase text-indigo-700 font-extrabold mb-1.5 font-mono">2. Pilih Unit Tujuan</label>
+                      <select
+                        value={backupTargetUnitId}
+                        onChange={(e) => setBackupTargetUnitId(e.target.value)}
+                        required
+                        className="w-full bg-slate-50 border border-slate-200 rounded px-3 py-2 text-sm text-slate-808 font-bold font-mono focus:outline-none focus:border-indigo-500 cursor-pointer"
+                      >
+                        <option value="">-- Pilih Unit Tujuan --</option>
+                        {units.filter(u => u.status === 'Ready').map(u => (
+                          <option key={u.id} value={u.id}>
+                            {u.unitCode} - {u.brand} ({u.type})
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+
+                    {/* Date Selector */}
+                    <div>
+                      <label className="block text-[10px] uppercase text-indigo-700 font-extrabold mb-1.5 font-mono">3. Tanggal Backup</label>
+                      <input
+                        type="date"
+                        value={backupDate}
+                        onChange={(e) => setBackupDate(e.target.value)}
+                        required
+                        className="w-full bg-slate-50 border border-slate-200 rounded px-3 py-2 text-sm text-slate-808 font-bold focus:outline-none focus:border-indigo-500 cursor-pointer font-mono"
+                      />
+                    </div>
+
+                    {/* Shift Selector */}
+                    <div>
+                      <label className="block text-[10px] uppercase text-indigo-700 font-extrabold mb-1.5 font-mono">4. Pilih Shift Tugas</label>
+                      <div className="grid grid-cols-2 gap-2 bg-slate-50 p-1 rounded border border-slate-200 h-9">
+                        <button
+                          type="button"
+                          onClick={() => setBackupShift(1)}
+                          className={`text-xs font-bold rounded flex items-center justify-center gap-1 cursor-pointer transition ${
+                            backupShift === 1 ? 'bg-amber-500 text-slate-950 font-black shadow-sm' : 'text-slate-600 hover:bg-slate-100'
+                          }`}
+                        >
+                          <Sun className="h-3.5 w-3.5" /> Siang (1)
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setBackupShift(2)}
+                          className={`text-xs font-bold rounded flex items-center justify-center gap-1 cursor-pointer transition ${
+                            backupShift === 2 ? 'bg-indigo-600 text-white font-black shadow-sm' : 'text-slate-600 hover:bg-slate-100'
+                          }`}
+                        >
+                          <Moon className="h-3.5 w-3.5" /> Malam (2)
+                        </button>
+                      </div>
+                    </div>
+
+                    <div className="col-span-1 md:col-span-4 flex justify-end gap-2 border-t border-slate-100 pt-4">
+                      <button
+                        type="button"
+                        onClick={() => setBackupFormOpen(false)}
+                        className="px-4 py-2 border border-slate-200 bg-transparent rounded text-xs font-bold text-slate-505 hover:bg-slate-5 transition cursor-pointer"
+                      >
+                        Batalkan
+                      </button>
+                      <button
+                        type="submit"
+                        className="px-5 py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-black rounded text-xs transition flex items-center gap-1 cursor-pointer"
+                      >
+                        <Check className="h-3.5 w-3.5" /> Simpan Operator Backup
+                      </button>
+                    </div>
+                  </form>
+                </div>
+              )}
+
+              {/* Transfers List Table */}
+              <div className="bg-white rounded-lg border border-slate-200 shadow-sm overflow-hidden">
+                <div className="p-4 bg-slate-50 border-b border-slate-200">
+                  <h4 className="font-extrabold text-slate-800 text-sm">
+                    Jadwal Operator Backup
+                  </h4>
+                  <p className="text-[11px] text-slate-500 font-medium">Berikut adalah seluruh pengalihan tugas operator secara manual yang sedang aktif atau terjadwal.</p>
+                </div>
+
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left border-collapse">
+                    <thead>
+                      <tr className="bg-slate-100/50 text-slate-705 uppercase font-mono text-[9px] tracking-wider font-extrabold border-b border-slate-200">
+                        <th className="p-3 pl-5">No.</th>
+                        <th className="p-3">Nama Operator</th>
+                        <th className="p-3">Unit Asal Rujuk</th>
+                        <th className="p-3">Unit Target Backup</th>
+                        <th className="p-3">Tanggal Backup</th>
+                        <th className="p-3">Shift</th>
+                        <th className="p-3 text-right pr-5">Aksi</th>
+                      </tr>
+                    </thead>
+                    <tbody className="text-xs text-slate-605 divide-y divide-slate-100">
+                      {(backupTransfers || []).map((bt, index) => {
+                        const op = employeeMap.get(bt.operatorId);
+                        const unitTarget = unitMap.get(bt.targetUnitId);
+                        
+                        // Trace original unit settings for display
+                        const origSetting = settings.find(s => s.operator1Id === bt.operatorId || s.operator2Id === bt.operatorId);
+                        const origBrand = origSetting
+                          ? origSetting.groupId === 'master'
+                            ? `Master Slot ${origSetting.masterSlotCode}`
+                            : `Unit ${unitMap.get(origSetting.unitId)?.unitCode || 'U-?'}`
+                          : 'Pool Standby';
+
+                        return (
+                          <tr key={bt.id} className="hover:bg-slate-50/50 font-medium select-none">
+                            <td className="p-3 pl-5 font-bold text-slate-400">{index + 1}</td>
+                            <td className="p-3">
+                              <p className="font-extrabold text-slate-800 text-sm">{op?.name || 'Karyawan Terhapus'}</p>
+                              <p className="text-[10px] text-slate-400 font-mono font-semibold">{op?.nrp || '-'}</p>
+                            </td>
+                            <td className="p-3 font-mono font-bold text-slate-505">
+                              {origBrand}
+                            </td>
+                            <td className="p-3">
+                              <span className="inline-flex items-center gap-1.5 text-xs bg-indigo-55 text-indigo-900 border border-indigo-250 rounded px-2.5 py-1 font-extrabold font-mono shadow-sm">
+                                <Truck className="h-3.5 w-3.5 text-indigo-500" />
+                                {unitTarget?.unitCode || 'U-?'}
+                              </span>
+                            </td>
+                            <td className="p-3 font-semibold font-sans">
+                              {formatIndonesianDate(bt.date)}
+                            </td>
+                            <td className="p-3">
+                              {Number(bt.shift) === 1 ? (
+                                <span className="inline-flex items-center gap-1 bg-amber-500/10 text-amber-800 px-2 py-0.5 rounded font-black uppercase text-[10px] tracking-wide border border-amber-500/20">
+                                  <Sun className="h-3 w-3" /> Siang
+                                </span>
+                              ) : (
+                                <span className="inline-flex items-center gap-1 bg-indigo-600/10 text-indigo-700 px-2 py-0.5 rounded font-black uppercase text-[10px] tracking-wide border border-indigo-600/20">
+                                  <Moon className="h-3 w-3" /> Malam
+                                </span>
+                              )}
+                            </td>
+                            <td className="p-3 text-right pr-5">
+                              <div className="flex justify-end gap-1.5">
+                                <button
+                                  onClick={() => {
+                                    setEditingBackup(bt);
+                                    setBackupOperatorId(bt.operatorId);
+                                    setBackupTargetUnitId(bt.targetUnitId);
+                                    setBackupDate(bt.date);
+                                    setBackupShift(bt.shift);
+                                    setBackupFormOpen(true);
+                                  }}
+                                  className="p-1 px-2 border border-slate-200 bg-transparent hover:bg-slate-50 hover:border-slate-350 text-slate-500 hover:text-slate-800 rounded transition flex items-center gap-1 text-[10px] font-bold cursor-pointer"
+                                >
+                                  <Pencil className="h-3 w-3" /> Edit
+                                </button>
+                                <button
+                                  onClick={() => {
+                                    if (confirm('Batal mobilisasi backup untuk operator ini?')) {
+                                      setBackupTransfers(prev => prev.filter(x => x.id !== bt.id));
+                                    }
+                                  }}
+                                  className="p-1 px-2 border border-rose-100 bg-rose-50/20 hover:bg-rose-50 text-rose-500 hover:text-rose-700 rounded transition flex items-center gap-1 text-[10px] font-bold cursor-pointer"
+                                >
+                                  <Trash2 className="h-3 w-3" /> Hapus
+                                </button>
+                              </div>
+                            </td>
+                          </tr>
+                        );
+                      })}
+
+                      {(!backupTransfers || backupTransfers.length === 0) && (
+                        <tr>
+                          <td colSpan={7} className="p-12 text-center text-slate-500 text-xs font-mono font-bold uppercase">
+                            BELUM ADA OPERATOR BACKUP YANG TERDAFTAR
+                          </td>
+                        </tr>
+                      )}
+                    </tbody>
+                  </table>
                 </div>
               </div>
             </motion.div>

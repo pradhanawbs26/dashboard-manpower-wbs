@@ -4,7 +4,7 @@
  */
 
 import React, { useState, useMemo } from 'react';
-import { HeavyUnit, Employee, UnitSetting, UnitGroup } from '../types';
+import { HeavyUnit, Employee, UnitSetting, UnitGroup, BackupTransfer } from '../types';
 import { calculateShift, formatIndonesianDate, formatIndonesianDayName } from '../utils/scheduler';
 import { Search, Calendar, ShieldAlert, CheckCircle2, Moon, Sun, AlertTriangle, ListFilter, Users } from 'lucide-react';
 import { motion } from 'motion/react';
@@ -14,6 +14,7 @@ interface FieldMonitorProps {
   employees: Employee[];
   settings: UnitSetting[];
   groups: UnitGroup[];
+  backupTransfers: BackupTransfer[];
   selectedDate: string;
   setSelectedDate: (date: string) => void;
   onNavigateToSetting: (settingId: string) => void;
@@ -24,6 +25,7 @@ export default function FieldMonitor({
   employees,
   settings,
   groups,
+  backupTransfers,
   selectedDate,
   setSelectedDate,
   onNavigateToSetting
@@ -71,6 +73,27 @@ export default function FieldMonitor({
 
   // Get active operator info for each setting on the selected date and shift with automatic master backfilling
   const resolvedSettings = useMemo(() => {
+    // Parse manual backup transfers for this date & shift
+    const activeTransfersForThisShift = (backupTransfers || []).filter(
+      bt => bt.date === selectedDate && Number(bt.shift) === Number(selectedShift)
+    );
+
+    // Map operator ID -> target unit ID
+    const operatorTransferTargetMap = new Map<string, string>();
+    // Map target unit ID -> transferred active operators (Employee[])
+    const unitTransferredOperatorsListMap = new Map<string, Employee[]>();
+
+    activeTransfersForThisShift.forEach(bt => {
+      const op = employeeMap.get(bt.operatorId);
+      if (op && op.status === 'Active') {
+        operatorTransferTargetMap.set(op.id, bt.targetUnitId);
+        if (!unitTransferredOperatorsListMap.has(bt.targetUnitId)) {
+          unitTransferredOperatorsListMap.set(bt.targetUnitId, []);
+        }
+        unitTransferredOperatorsListMap.get(bt.targetUnitId)!.push(op);
+      }
+    });
+
     // 1. Compile active, on-duty master operators for this shift & date
     const availableMasterCandidates: Array<{
       id: string;
@@ -113,17 +136,22 @@ export default function FieldMonitor({
         }
 
         if (activeMop && activeMop.status === 'Active' && activeRole !== 'OFF') {
-          availableMasterCandidates.push({
-            id: activeMop.id,
-            employee: activeMop,
-            masterSlotCode: s.masterSlotCode || 'M-1',
-            specializations: activeMop.specializations || [],
-            settingId: s.id,
-            backupPriorityType1: s.backupPriorityType1,
-            backupPriorityType2: s.backupPriorityType2,
-            backupPriorityUnitId1: s.backupPriorityUnitId1,
-            backupPriorityUnitId2: s.backupPriorityUnitId2
-          });
+          // Check if this master operator is manually transferred out
+          const isManuallyTransferred = operatorTransferTargetMap.has(activeMop.id);
+          
+          if (!isManuallyTransferred) {
+            availableMasterCandidates.push({
+              id: activeMop.id,
+              employee: activeMop,
+              masterSlotCode: s.masterSlotCode || 'M-1',
+              specializations: activeMop.specializations || [],
+              settingId: s.id,
+              backupPriorityType1: s.backupPriorityType1,
+              backupPriorityType2: s.backupPriorityType2,
+              backupPriorityUnitId1: s.backupPriorityUnitId1,
+              backupPriorityUnitId2: s.backupPriorityUnitId2
+            });
+          }
         }
       }
     });
@@ -140,6 +168,8 @@ export default function FieldMonitor({
         let activeOperator: Employee | null = null;
         let activeRoleStatus: 'S' | 'M' | 'OFF' = 'OFF';
         let originalOperator: Employee | null = null;
+
+        const isConfiguredEmpty = selectedShift === 1 ? !setting.operator1Id : !setting.operator2Id;
 
         if (selectedShift === 1) { // Shift Siang
           if (shiftInfo.operator1Role === 'S') {
@@ -163,12 +193,32 @@ export default function FieldMonitor({
           }
         }
 
+        // Apply backup transfer OUT
+        let isTransferredOut = false;
+        if (activeOperator && operatorTransferTargetMap.has(activeOperator.id)) {
+          const targetUnitId = operatorTransferTargetMap.get(activeOperator.id);
+          if (targetUnitId !== setting.unitId) {
+            isTransferredOut = true;
+            activeOperator = null;
+            activeRoleStatus = 'OFF';
+          }
+        }
+
+        // Apply backup transfer INTO
+        let isFilledByBackupTransfer = false;
+        const transferredInOps = unitTransferredOperatorsListMap.get(setting.unitId);
+        if (transferredInOps && transferredInOps.length > 0) {
+          activeOperator = transferredInOps[0];
+          activeRoleStatus = selectedShift === 1 ? 'S' : 'M';
+          isFilledByBackupTransfer = true;
+        }
+
         const isPrimaryActive = activeOperator && activeOperator.status === 'Active' && activeRoleStatus !== 'OFF';
 
         let isFilledByMaster = false;
         let backupFromSlot: string | undefined = undefined;
 
-        if (!isPrimaryActive && unit) {
+        if (!isPrimaryActive && !isFilledByBackupTransfer && unit) {
           // Score each available master candidate for suitability
           const scoredCandidates = availableMasterCandidates
             .filter(cand => !cand.isAssignedToUnitCode)
@@ -232,6 +282,8 @@ export default function FieldMonitor({
           isFilledByMaster,
           backupFromSlot,
           originalOperator,
+          isConfiguredEmpty,
+          isFilledByBackupTransfer,
           dispatchedTo: undefined
         };
       });
@@ -246,6 +298,8 @@ export default function FieldMonitor({
 
         let activeOperator: Employee | null = null;
         let activeRoleStatus: 'S' | 'M' | 'OFF' = 'OFF';
+
+        const isConfiguredEmpty = selectedShift === 1 ? !setting.operator1Id : !setting.operator2Id;
 
         if (selectedShift === 1) { // Shift Siang
           if (shiftInfo.operator1Role === 'S') {
@@ -265,13 +319,27 @@ export default function FieldMonitor({
           }
         }
 
-        const isOff = !activeOperator || activeOperator.status !== 'Active' || activeRoleStatus === 'OFF';
+        // Apply backup transfer OUT
+        let isTransferredOut = false;
+        let manualTransferUnitCode = '';
+        if (activeOperator && operatorTransferTargetMap.has(activeOperator.id)) {
+          isTransferredOut = true;
+          const targetUnitId = operatorTransferTargetMap.get(activeOperator.id);
+          const targetUnit = targetUnitId ? unitMap.get(targetUnitId) : null;
+          manualTransferUnitCode = targetUnit ? targetUnit.unitCode : 'Pindah';
+          activeOperator = null;
+          activeRoleStatus = 'OFF';
+        }
+
+        const isOff = !activeOperator && !isTransferredOut;
         const slotCode = setting.masterSlotCode || 'M-1';
         
-        // Find if they are currently assigned to any unit
-        const dispatchedTo = availableMasterCandidates.find(
+        // Find if they are currently assigned to any unit automatically
+        const autoDispatched = availableMasterCandidates.find(
           cand => cand.masterSlotCode === slotCode
         )?.isAssignedToUnitCode;
+
+        const dispatchedTo = autoDispatched || (isTransferredOut ? manualTransferUnitCode : undefined);
 
         const opSpecializationsStr = op1?.specializations?.join(', ') || 'Dump Truck';
         const virtualUnit: HeavyUnit = {
@@ -287,12 +355,14 @@ export default function FieldMonitor({
           unit: virtualUnit,
           op1,
           op2,
-          activeOperator,
+          activeOperator: activeOperator || (isTransferredOut ? (employeeMap.get(setting.operator1Id) || employeeMap.get(setting.operator2Id) || null) : null),
           activeRoleStatus: isOff ? ('OFF' as const) : (selectedShift === 1 ? ('S' as const) : ('M' as const)),
           shiftInfo,
           isFilledByMaster: false,
           backupFromSlot: undefined,
           originalOperator: null,
+          isConfiguredEmpty,
+          isFilledByBackupTransfer: isTransferredOut, // treat manual dispatch as backup transfer representation
           dispatchedTo
         };
       });
@@ -302,6 +372,7 @@ export default function FieldMonitor({
       return item.originalOperator && 
              item.originalOperator.status === 'Active' && 
              !item.isFilledByMaster && 
+             !item.isFilledByBackupTransfer &&
              item.activeRoleStatus !== 'OFF';
     });
 
@@ -316,7 +387,7 @@ export default function FieldMonitor({
     });
 
     return [...mappedUtamaSettings, ...filteredMasterSettings];
-  }, [settings, selectedDate, selectedShift, employeeMap, unitMap]);
+  }, [settings, selectedDate, selectedShift, employeeMap, unitMap, backupTransfers]);
 
   // Filter based on search query (unit code or operator name) and group id
   const filteredResolvedSettings = useMemo(() => {
@@ -527,7 +598,7 @@ export default function FieldMonitor({
               {/* Compact Responsive Grid: 6 columns horizontally on xl screens */}
               <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-3">
                  {/* 1. Render Configured Units in this category */}
-                 {category.resolvedSettings.map(({ setting, unit, activeOperator, activeRoleStatus, isFilledByMaster, backupFromSlot, originalOperator, dispatchedTo }) => {
+                 {category.resolvedSettings.map(({ setting, unit, activeOperator, activeRoleStatus, isFilledByMaster, backupFromSlot, originalOperator, dispatchedTo, isConfiguredEmpty, isFilledByBackupTransfer }) => {
                    if (!unit) return null;
                    const isOff = activeRoleStatus === 'OFF' || !activeOperator;
                    const isMasterGroup = setting.groupId === 'master';
@@ -543,11 +614,13 @@ export default function FieldMonitor({
                              ? dispatchedTo
                                ? 'border-emerald-300 hover:border-emerald-500 hover:shadow-md bg-emerald-50/10'
                                : 'border-slate-200 hover:border-slate-400 hover:shadow-md'
-                             : isFilledByMaster
-                               ? selectedShift === 1 ? 'border-amber-300 hover:border-amber-500 hover:shadow-md bg-amber-50/10' : 'border-indigo-300 hover:border-indigo-500 hover:shadow-md bg-indigo-50/10'
-                               : selectedShift === 1 
-                                 ? 'border-slate-200 hover:border-amber-400 hover:shadow-md' 
-                                 : 'border-slate-200 hover:border-indigo-400 hover:shadow-md'
+                             : selectedShift === 2
+                               ? 'border-slate-200 hover:border-indigo-400 hover:shadow-md bg-indigo-50/5'
+                               : isFilledByMaster
+                                 ? 'border-amber-300 hover:border-amber-500 hover:shadow-md bg-amber-50/10'
+                                 : isFilledByBackupTransfer
+                                   ? 'border-indigo-300 hover:border-indigo-500 hover:shadow-md bg-indigo-50/10'
+                                   : 'border-slate-200 hover:border-amber-400 hover:shadow-md'
                        }`}
                        onClick={() => onNavigateToSetting(setting.id)}
                      >
@@ -559,11 +632,13 @@ export default function FieldMonitor({
                              ? dispatchedTo
                                ? 'bg-emerald-600 border-emerald-600 text-white font-black'
                                : 'bg-slate-700 border-slate-700 text-white font-black'
-                             : isFilledByMaster
-                               ? selectedShift === 1 ? 'bg-amber-500 border-amber-500 text-slate-950 font-black' : 'bg-indigo-600 border-indigo-600 text-white font-black'
-                               : selectedShift === 1 
-                                 ? 'bg-amber-400 border-amber-400 text-slate-950 font-black' 
-                                 : 'bg-indigo-600 border-indigo-600 text-white font-black'
+                             : isFilledByBackupTransfer
+                               ? selectedShift === 1 ? 'bg-amber-550 border-amber-550 text-slate-950 font-black' : 'bg-indigo-600 border-indigo-600 text-white font-black'
+                               : isFilledByMaster
+                                 ? selectedShift === 1 ? 'bg-amber-500 border-amber-500 text-slate-950 font-black' : 'bg-indigo-600 border-indigo-600 text-white font-black'
+                                 : selectedShift === 1 
+                                   ? 'bg-amber-400 border-amber-400 text-slate-950 font-black' 
+                                   : 'bg-indigo-600 border-indigo-600 text-white font-black'
                        }`}>
                          {unit.unitCode}
                        </div>
@@ -572,29 +647,49 @@ export default function FieldMonitor({
                        <div className="flex-1 p-2 flex flex-col justify-center items-center text-center">
                          {isOff ? (
                            <div className="py-1">
-                             <div className="inline-flex items-center gap-1 py-0.5 px-1.5 rounded-full text-[8px] font-bold uppercase bg-rose-50 text-rose-650 border border-rose-100 mb-1 font-mono">
-                               {isMasterGroup ? 'SLOT STANDBY' : 'STANDBY'}
-                             </div>
-                             <p className="text-[11px] font-black text-slate-400 tracking-tight uppercase line-clamp-1 truncate">
-                               {isMasterGroup ? 'Operator Off' : 'ROSTER OFF'}
-                             </p>
-                             <p className="text-[9px] text-slate-400 font-mono mt-0.5">
-                               Libur / Off
-                             </p>
+                             {isConfiguredEmpty ? (
+                               <>
+                                 <div className="inline-flex items-center gap-1 py-0.5 px-1.5 rounded-full text-[8.5px] font-extrabold uppercase bg-amber-50 text-amber-700 border border-amber-200/50 mb-1 font-mono tracking-wide">
+                                   TANPA OPERATOR
+                                 </div>
+                                 <p className="text-[11px] font-black text-slate-400 tracking-tight uppercase line-clamp-1 truncate">
+                                   Belum Dikonfigurasi
+                                 </p>
+                                 <p className="text-[9px] text-amber-600/70 font-mono font-bold mt-0.5 uppercase tracking-wider">
+                                   Kekurangan Orang
+                                 </p>
+                               </>
+                             ) : (
+                               <>
+                                 <div className="inline-flex items-center gap-1 py-0.5 px-1.5 rounded-full text-[8px] font-bold uppercase bg-rose-50 text-rose-650 border border-rose-100 mb-1 font-mono">
+                                   {isMasterGroup ? 'SLOT STANDBY' : 'STANDBY'}
+                                 </div>
+                                 <p className="text-[11px] font-black text-slate-400 tracking-tight uppercase line-clamp-1 truncate">
+                                   {isMasterGroup ? 'Operator Off' : 'ROSTER OFF'}
+                                 </p>
+                                 <p className="text-[9px] text-slate-400 font-mono mt-0.5">
+                                   Libur / Off
+                                 </p>
+                               </>
+                             )}
                            </div>
                          ) : (
                            <div className="w-full py-1">
-                             <p className="text-[8px] text-slate-400 font-mono uppercase tracking-wider mb-0.5 font-bold truncate">
+                             <p className="text-[8px] text-slate-405 font-mono uppercase tracking-wider mb-0.5 font-bold truncate">
                                {isMasterGroup 
                                  ? 'MASTER ON-DUTY' 
-                                 : isFilledByMaster 
-                                   ? 'BACKUP MASTER' 
-                                   : 'OPERATOR'}
+                                 : isFilledByBackupTransfer
+                                   ? 'MOBILISASI BACKUP'
+                                   : isFilledByMaster 
+                                     ? 'BACKUP MASTER' 
+                                     : 'OPERATOR'}
                              </p>
                              <h3 className={`text-xs font-black tracking-tight leading-normal line-clamp-1 truncate ${
                                isMasterGroup 
-                                 ? dispatchedTo ? 'text-emerald-700 font-black' : 'text-slate-805'
-                                 : isFilledByMaster ? selectedShift === 1 ? 'text-amber-700 font-black' : 'text-indigo-700 font-black' : 'text-slate-805'
+                                 ? dispatchedTo ? 'text-emerald-750 font-black' : 'text-slate-805'
+                                 : isFilledByBackupTransfer
+                                   ? selectedShift === 1 ? 'text-amber-850 font-black' : 'text-indigo-850 font-black'
+                                   : isFilledByMaster ? selectedShift === 1 ? 'text-amber-700 font-black' : 'text-indigo-700 font-black' : 'text-slate-805'
                              }`}>
                                {activeOperator.name}
                              </h3>
@@ -607,8 +702,18 @@ export default function FieldMonitor({
                                <span className="truncate">{activeOperator.nrp}</span>
                              </p>
 
+                             {isFilledByBackupTransfer && !isMasterGroup && (
+                               <div className={`mt-1.5 px-2 py-0.5 rounded text-[10px] font-black uppercase text-center flex items-center justify-center gap-1 shrink-0 border ${
+                                 selectedShift === 1
+                                   ? 'bg-amber-500/10 text-amber-850 border-amber-500/20'
+                                   : 'bg-indigo-500/10 text-indigo-850 border-indigo-500/20'
+                               }`}>
+                                 ★ MOBILISASI BACKUP ★
+                               </div>
+                             )}
+
                              {isFilledByMaster && (
-                               <div className={`mt-1.5 px-2 py-1 rounded text-[10px] font-black uppercase text-center flex items-center justify-center gap-1 shrink-0 border ${
+                               <div className={`mt-1.5 px-2 py-0.5 rounded text-[10px] font-black uppercase text-center flex items-center justify-center gap-1 shrink-0 border ${
                                  selectedShift === 1
                                    ? 'bg-amber-500/10 text-amber-855 border-amber-500/20'
                                    : 'bg-indigo-500/10 text-indigo-855 border-indigo-500/20'
@@ -620,7 +725,7 @@ export default function FieldMonitor({
                              {isMasterGroup && (
                                <div className="mt-1 truncate">
                                  {dispatchedTo ? (
-                                   <span className="inline-flex text-[8px] px-1 bg-emerald-50 text-emerald-800 rounded border border-emerald-150 font-bold uppercase truncate">
+                                   <span className="inline-flex text-[8px] px-1 bg-emerald-50 text-emerald-800 rounded border border-emerald-150 font-extrabold uppercase truncate">
                                      Unit: {dispatchedTo}
                                    </span>
                                  ) : (
