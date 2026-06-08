@@ -6,8 +6,10 @@
 import React, { useState, useMemo } from 'react';
 import { HeavyUnit, Employee, UnitSetting, UnitGroup, BackupTransfer } from '../types';
 import { calculateShift, formatIndonesianDate, formatIndonesianDayName } from '../utils/scheduler';
-import { Search, Calendar, ShieldAlert, CheckCircle2, Moon, Sun, AlertTriangle, ListFilter, Users } from 'lucide-react';
+import { Search, Calendar, ShieldAlert, CheckCircle2, Moon, Sun, AlertTriangle, ListFilter, Users, Download } from 'lucide-react';
 import { motion } from 'motion/react';
+import html2canvas from 'html2canvas';
+import { jsPDF } from 'jspdf';
 
 interface FieldMonitorProps {
   units: HeavyUnit[];
@@ -30,7 +32,10 @@ export default function FieldMonitor({
   setSelectedDate,
   onNavigateToSetting
 }: FieldMonitorProps) {
-  const [selectedShift, setSelectedShift] = useState<1 | 2>(1); // 1 = Siang, 2 = Malam
+  const [selectedShift, setSelectedShift] = useState<1 | 2>(() => {
+    const hour = new Date().getHours();
+    return (hour >= 6 && hour < 18) ? 1 : 2;
+  });
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedGroupFilter, setSelectedGroupFilter] = useState<string>('all');
 
@@ -71,6 +76,84 @@ export default function FieldMonitor({
     setSelectedDate(`${yyyy}-${mm}-${dd}`);
   };
 
+  const [isExporting, setIsExporting] = useState(false);
+
+  const handleExportPDF = async () => {
+    setIsExporting(true);
+    const container = document.getElementById('field-monitor-container');
+    const scrollArea = document.getElementById('field-monitor-scroll-area');
+    const boardControls = document.getElementById('board-controls-area');
+    const dateSelectorPart = document.getElementById('date-selector-part');
+    const exportButton = document.getElementById('export-pdf-btn');
+
+    if (!container) {
+      alert('Dashboard container tidak ditemukan!');
+      setIsExporting(false);
+      return;
+    }
+
+    try {
+      // 1. Temporarily prepare layout for PDF conversion
+      if (exportButton) exportButton.style.display = 'none';
+      if (boardControls) boardControls.style.display = 'none';
+      if (dateSelectorPart) dateSelectorPart.style.display = 'none';
+
+      // Expand scroll area temporarily so all categories are fully visible in the canvas
+      let originalStyleHeight = '';
+      let originalOverflow = '';
+      if (scrollArea) {
+        originalStyleHeight = scrollArea.style.height;
+        originalOverflow = scrollArea.style.overflowY;
+        scrollArea.style.height = 'auto';
+        scrollArea.style.overflowY = 'visible';
+      }
+
+      // We can also temporarily adjust padding or styling if needed
+      // 2. Generate Canvas with modern rendering configuration
+      const canvas = await html2canvas(container, {
+        scale: 2, // ultra clear Retina resolution
+        useCORS: true,
+        logging: false,
+        backgroundColor: '#f8fafc',
+        windowWidth: container.scrollWidth,
+        windowHeight: container.scrollHeight
+      });
+
+      // 3. Restore original UI styles immediately
+      if (exportButton) exportButton.style.display = '';
+      if (boardControls) boardControls.style.display = '';
+      if (dateSelectorPart) dateSelectorPart.style.display = '';
+      if (scrollArea) {
+        scrollArea.style.height = originalStyleHeight;
+        scrollArea.style.overflowY = originalOverflow;
+      }
+
+      // 4. Create the PDF document
+      const imgData = canvas.toDataURL('image/jpeg', 0.95);
+      const isLandscape = canvas.width > canvas.height;
+      const pdf = new jsPDF({
+        orientation: isLandscape ? 'landscape' : 'portrait',
+        unit: 'px',
+        format: [canvas.width / 2, canvas.height / 2]
+      });
+
+      const pdfWidth = pdf.internal.pageSize.getWidth();
+      const pdfHeight = pdf.internal.pageSize.getHeight();
+
+      pdf.addImage(imgData, 'JPEG', 0, 0, pdfWidth, pdfHeight);
+
+      // 5. Trigger download with dynamic filename
+      const formattedDateStr = selectedDate.split('-').reverse().join('-');
+      const shiftStr = selectedShift === 1 ? 'Siang' : 'Malam';
+      pdf.save(`Dashboard_Unit_${formattedDateStr}_Shift_${shiftStr}.pdf`);
+
+    } catch (error) {
+      console.error('Pdf render error:', error);
+    } finally {
+      setIsExporting(false);
+    }
+  };
+
   // Get active operator info for each setting on the selected date and shift with automatic master backfilling
   const resolvedSettings = useMemo(() => {
     // Parse manual backup transfers for this date & shift
@@ -94,70 +177,8 @@ export default function FieldMonitor({
       }
     });
 
-    // 1. Compile active, on-duty master operators for this shift & date
-    const availableMasterCandidates: Array<{
-      id: string;
-      employee: Employee;
-      masterSlotCode: string;
-      specializations: string[];
-      settingId: string;
-      backupPriorityType1?: string;
-      backupPriorityType2?: string;
-      backupPriorityUnitId1?: string;
-      backupPriorityUnitId2?: string;
-      isAssignedToUnitCode?: string;
-    }> = [];
-
-    settings.forEach(s => {
-      if (s.groupId === 'master') {
-        const mShiftInfo = calculateShift(s, selectedDate);
-        const mop1 = employeeMap.get(s.operator1Id);
-        const mop2 = employeeMap.get(s.operator2Id);
-
-        let activeMop: Employee | null = null;
-        let activeRole: 'S' | 'M' | 'OFF' = 'OFF';
-
-        if (selectedShift === 1) { // Shift Siang
-          if (mShiftInfo.operator1Role === 'S') {
-            activeMop = mop1 || null;
-            activeRole = 'S';
-          } else if (mShiftInfo.operator2Role === 'S') {
-            activeMop = mop2 || null;
-            activeRole = 'S';
-          }
-        } else { // Shift Malam
-          if (mShiftInfo.operator1Role === 'M') {
-            activeMop = mop1 || null;
-            activeRole = 'M';
-          } else if (mShiftInfo.operator2Role === 'M') {
-            activeMop = mop2 || null;
-            activeRole = 'M';
-          }
-        }
-
-        if (activeMop && activeMop.status === 'Active' && activeRole !== 'OFF') {
-          // Check if this master operator is manually transferred out
-          const isManuallyTransferred = operatorTransferTargetMap.has(activeMop.id);
-          
-          if (!isManuallyTransferred) {
-            availableMasterCandidates.push({
-              id: activeMop.id,
-              employee: activeMop,
-              masterSlotCode: s.masterSlotCode || 'M-1',
-              specializations: activeMop.specializations || [],
-              settingId: s.id,
-              backupPriorityType1: s.backupPriorityType1,
-              backupPriorityType2: s.backupPriorityType2,
-              backupPriorityUnitId1: s.backupPriorityUnitId1,
-              backupPriorityUnitId2: s.backupPriorityUnitId2
-            });
-          }
-        }
-      }
-    });
-
-    // 2. Resolve 'utama' settings and assign backup from master pool if vacant
-    const mappedUtamaSettings = settings
+    // Step 1: Pre-calculate direct/initial status of all 'utama' settings
+    const initialUtama = settings
       .filter(s => s.groupId === 'utama')
       .map(setting => {
         const shiftInfo = calculateShift(setting, selectedDate);
@@ -214,59 +235,7 @@ export default function FieldMonitor({
         }
 
         const isPrimaryActive = activeOperator && activeOperator.status === 'Active' && activeRoleStatus !== 'OFF';
-
-        let isFilledByMaster = false;
-        let backupFromSlot: string | undefined = undefined;
-
-        if (!isPrimaryActive && !isFilledByBackupTransfer && unit) {
-          // Score each available master candidate for suitability
-          const scoredCandidates = availableMasterCandidates
-            .filter(cand => !cand.isAssignedToUnitCode)
-            .map(cand => {
-              let score = 0;
-
-              // 1. Highest Priority: Specific Unit ID Match #1
-              if (cand.backupPriorityUnitId1 && cand.backupPriorityUnitId1 === unit.id) {
-                score += 1000;
-              }
-              // 2. High Priority: Specific Unit ID Match #2
-              else if (cand.backupPriorityUnitId2 && cand.backupPriorityUnitId2 === unit.id) {
-                score += 500;
-              }
-              // 3. Priority: Unit Type Match #1
-              else if (cand.backupPriorityType1 && cand.backupPriorityType1 === unit.type) {
-                score += 200;
-              }
-              // 4. Priority: Unit Type Match #2
-              else if (cand.backupPriorityType2 && cand.backupPriorityType2 === unit.type) {
-                score += 100;
-              }
-              // 5. Normal: Match Specialization
-              else if ((cand.specializations || []).includes(unit.type)) {
-                score += 10;
-              }
-
-              return { cand, score };
-            })
-            .filter(item => item.score > 0);
-
-          // Sort candidates by score descending
-          scoredCandidates.sort((a, b) => b.score - a.score);
-
-          // Select the best candidate (if there is at least one)
-          const matchedCandidate = scoredCandidates.length > 0 ? scoredCandidates[0].cand : null;
-
-          if (matchedCandidate) {
-            matchedCandidate.isAssignedToUnitCode = unit.unitCode;
-            activeOperator = matchedCandidate.employee;
-            activeRoleStatus = selectedShift === 1 ? 'S' : 'M';
-            isFilledByMaster = true;
-            backupFromSlot = matchedCandidate.masterSlotCode;
-          } else {
-            activeOperator = null;
-            activeRoleStatus = 'OFF';
-          }
-        }
+        const isUnitBroken = unit && (unit.status === 'Breakdown' || unit.status === 'Maintenance');
 
         return {
           setting,
@@ -276,16 +245,246 @@ export default function FieldMonitor({
           activeOperator,
           activeRoleStatus,
           shiftInfo,
-          isFilledByMaster,
-          backupFromSlot,
+          isFilledByMaster: false,
+          backupFromSlot: undefined,
           originalOperator,
           isConfiguredEmpty,
           isFilledByBackupTransfer,
-          dispatchedTo: undefined
+          isUnitBroken,
+          isPrimaryActive,
+          isTransferredOut,
+          isFilledByBreakdownRelocation: false,
+          breakdownOperatorFromUnitCode: undefined
         };
       });
 
-    // 3. Resolve 'master' settings and show their active dispatch statuses
+    // Step 1b: Pre-calculate virtual targets for completely unconfigured units
+    const configuredUnitIds = new Set(settings.map(s => s.unitId));
+    const rawUnconfiguredUnits = units.filter(u => !configuredUnitIds.has(u.id));
+
+    const targetUnconfiguredItems = rawUnconfiguredUnits.map(unit => {
+      const mockSetting: UnitSetting = {
+        id: `unconfig-setting-${unit.id}`,
+        unitId: unit.id,
+        groupId: 'utama',
+        operator1Id: '',
+        operator2Id: '',
+        rosterPattern: '6-1',
+        fixedOffDayOfWeek: 0,
+        startSiangDate: selectedDate,
+        createdAt: new Date().toISOString()
+      } as any;
+
+      return {
+        setting: mockSetting,
+        unit,
+        op1: null,
+        op2: null,
+        activeOperator: null as Employee | null,
+        activeRoleStatus: 'OFF' as const,
+        shiftInfo: {
+          operator1Role: 'OFF' as const,
+          operator2Role: 'OFF' as const,
+          operator1PatternName: 'None',
+          operator2PatternName: 'None'
+        },
+        isFilledByMaster: false,
+        backupFromSlot: undefined as string | undefined,
+        originalOperator: null as Employee | null,
+        isConfiguredEmpty: true,
+        isFilledByBackupTransfer: false,
+        isUnitBroken: unit.status === 'Breakdown' || unit.status === 'Maintenance',
+        isPrimaryActive: false,
+        isTransferredOut: false,
+        isFilledByBreakdownRelocation: false,
+        breakdownOperatorFromUnitCode: undefined as string | undefined,
+        isUnconfiguredTarget: true
+      };
+    });
+
+    const allTargets = [
+      ...initialUtama,
+      ...targetUnconfiguredItems
+    ];
+
+    // Step 2: Extract active operators of broken units who should be relocated
+    const availableBreakdownCandidates: Array<{
+      id: string;
+      employee: Employee;
+      specializations: string[];
+      fromUnitCode: string;
+      fromUnitId: string;
+      settingId: string;
+      isAssignedToUnitCode?: string;
+    }> = [];
+
+    initialUtama.forEach(item => {
+      if (item.isPrimaryActive && item.isUnitBroken && !item.isFilledByBackupTransfer && !item.isTransferredOut) {
+        if (item.activeOperator) {
+          availableBreakdownCandidates.push({
+            id: item.activeOperator.id,
+            employee: item.activeOperator,
+            specializations: item.activeOperator.specializations || [],
+            fromUnitCode: item.unit?.unitCode || '',
+            fromUnitId: item.unit?.id || '',
+            settingId: item.setting.id
+          });
+          // Remove them from operating the broken unit
+          item.activeOperator = null;
+          item.activeRoleStatus = 'OFF';
+        }
+      }
+    });
+
+    // Step 3: Compile available master operators
+    const availableMasterCandidates: Array<{
+      id: string;
+      employee: Employee;
+      masterSlotCode: string;
+      specializations: string[];
+      settingId: string;
+      backupPriorityType1?: string;
+      backupPriorityType2?: string;
+      backupPriorityUnitId1?: string;
+      backupPriorityUnitId2?: string;
+      isAssignedToUnitCode?: string;
+    }> = [];
+
+    settings.forEach(s => {
+      if (s.groupId === 'master') {
+        const mShiftInfo = calculateShift(s, selectedDate);
+        const mop1 = employeeMap.get(s.operator1Id);
+        const mop2 = employeeMap.get(s.operator2Id);
+
+        let activeMop: Employee | null = null;
+        let activeRole: 'S' | 'M' | 'OFF' = 'OFF';
+
+        if (selectedShift === 1) { // Shift Siang
+          if (mShiftInfo.operator1Role === 'S') {
+            activeMop = mop1 || null;
+            activeRole = 'S';
+          } else if (mShiftInfo.operator2Role === 'S') {
+            activeMop = mop2 || null;
+            activeRole = 'S';
+          }
+        } else { // Shift Malam
+          if (mShiftInfo.operator1Role === 'M') {
+            activeMop = mop1 || null;
+            activeRole = 'M';
+          } else if (mShiftInfo.operator2Role === 'M') {
+            activeMop = mop2 || null;
+            activeRole = 'M';
+          }
+        }
+
+        if (activeMop && activeMop.status === 'Active' && activeRole !== 'OFF') {
+          const isManuallyTransferred = operatorTransferTargetMap.has(activeMop.id);
+          if (!isManuallyTransferred) {
+            availableMasterCandidates.push({
+              id: activeMop.id,
+              employee: activeMop,
+              masterSlotCode: s.masterSlotCode || 'M-1',
+              specializations: activeMop.specializations || [],
+              settingId: s.id,
+              backupPriorityType1: s.backupPriorityType1,
+              backupPriorityType2: s.backupPriorityType2,
+              backupPriorityUnitId1: s.backupPriorityUnitId1,
+              backupPriorityUnitId2: s.backupPriorityUnitId2
+            });
+          }
+        }
+      }
+    });
+
+    // Pass 1: Relocate operators from breakdown units to vacant & ready units of matching EGI specialization
+    allTargets.forEach(item => {
+      const isVacantAndReady = item.unit && 
+                               item.unit.status === 'Ready' && 
+                               !item.activeOperator && 
+                               !item.isFilledByBackupTransfer;
+
+      if (isVacantAndReady && item.unit) {
+        const eligibleBreakdowns = availableBreakdownCandidates
+          .filter(cand => !cand.isAssignedToUnitCode)
+          .filter(cand => cand.specializations.includes(item.unit!.type));
+
+        if (eligibleBreakdowns.length > 0) {
+          const matchedCand = eligibleBreakdowns[0];
+          matchedCand.isAssignedToUnitCode = item.unit.unitCode;
+          item.activeOperator = matchedCand.employee;
+          item.activeRoleStatus = selectedShift === 1 ? 'S' : 'M';
+          item.isFilledByBreakdownRelocation = true;
+          item.breakdownOperatorFromUnitCode = matchedCand.fromUnitCode;
+        }
+      }
+    });
+
+    // Pass 2: Fill remaining vacant & ready units with Master operators
+    allTargets.forEach(item => {
+      const isVacantAndReady = item.unit && 
+                               item.unit.status === 'Ready' && 
+                               !item.activeOperator && 
+                               !item.isFilledByBackupTransfer;
+
+      if (isVacantAndReady && item.unit) {
+        const scoredCandidates = availableMasterCandidates
+          .filter(cand => !cand.isAssignedToUnitCode)
+          .filter(cand => {
+            const hasSpecialization = (cand.specializations || []).includes(item.unit!.type);
+            const hasPriorityUnit1 = cand.backupPriorityUnitId1 === item.unit!.id;
+            const hasPriorityUnit2 = cand.backupPriorityUnitId2 === item.unit!.id;
+            const hasPriorityType1 = cand.backupPriorityType1 === item.unit!.type;
+            const hasPriorityType2 = cand.backupPriorityType2 === item.unit!.type;
+            return hasSpecialization || hasPriorityUnit1 || hasPriorityUnit2 || hasPriorityType1 || hasPriorityType2;
+          })
+          .map(cand => {
+            let score = 1; // Base score of 1 so any standby candidate can match!
+
+            // 1. Highest Priority: Specific Unit ID Match #1
+            if (cand.backupPriorityUnitId1 && cand.backupPriorityUnitId1 === item.unit!.id) {
+              score += 1000;
+            }
+            // 2. High Priority: Specific Unit ID Match #2
+            else if (cand.backupPriorityUnitId2 && cand.backupPriorityUnitId2 === item.unit!.id) {
+              score += 500;
+            }
+            // 3. Priority: Unit Type Match #1
+            else if (cand.backupPriorityType1 && cand.backupPriorityType1 === item.unit!.type) {
+              score += 200;
+            }
+            // 4. Priority: Unit Type Match #2
+            else if (cand.backupPriorityType2 && cand.backupPriorityType2 === item.unit!.type) {
+              score += 100;
+            }
+            // 5. Normal: Match Specialization
+            else if ((cand.specializations || []).includes(item.unit!.type)) {
+              score += 10;
+            }
+
+            return { cand, score };
+          });
+
+        scoredCandidates.sort((a, b) => b.score - a.score);
+
+        if (scoredCandidates.length > 0) {
+          const matchedCand = scoredCandidates[0].cand;
+          matchedCand.isAssignedToUnitCode = item.unit.unitCode;
+          item.activeOperator = matchedCand.employee;
+          item.activeRoleStatus = selectedShift === 1 ? 'S' : 'M';
+          item.isFilledByMaster = true;
+          item.backupFromSlot = matchedCand.masterSlotCode;
+        }
+      }
+    });
+
+    const mappedUtamaSettings = allTargets.filter(item => {
+      if ((item as any).isUnconfiguredTarget) {
+        return item.activeOperator !== null;
+      }
+      return true;
+    });
+
+    // Resolve 'master' settings and show their active dispatch statuses
     const mappedMasterSettings = settings
       .filter(s => s.groupId === 'master')
       .map(setting => {
@@ -360,16 +559,23 @@ export default function FieldMonitor({
           originalOperator: null,
           isConfiguredEmpty,
           isFilledByBackupTransfer: isTransferredOut, // treat manual dispatch as backup transfer representation
-          dispatchedTo
+          dispatchedTo,
+          isUnitBroken: false,
+          isFilledByBreakdownRelocation: false,
+          breakdownOperatorFromUnitCode: undefined
         };
       });
 
-    // Check if ALL 'utama' settings have their primary operators active & on-duty (not filled by master, and not blank)
+    // Check if ALL 'utama' settings have their primary operators active & on-duty (not filled by master, not blank, and not broken)
     const allUtamaFilledByPrimary = mappedUtamaSettings.length > 0 && mappedUtamaSettings.every(item => {
+      const isBroken = item.unit && (item.unit.status === 'Breakdown' || item.unit.status === 'Maintenance');
+      if (isBroken) return true; // ignore broken units from this block
+
       return item.originalOperator && 
              item.originalOperator.status === 'Active' && 
              !item.isFilledByMaster && 
              !item.isFilledByBackupTransfer &&
+             !item.isFilledByBreakdownRelocation &&
              item.activeRoleStatus !== 'OFF';
     });
 
@@ -384,7 +590,7 @@ export default function FieldMonitor({
     });
 
     return [...mappedUtamaSettings, ...filteredMasterSettings];
-  }, [settings, selectedDate, selectedShift, employeeMap, unitMap, backupTransfers]);
+  }, [settings, selectedDate, selectedShift, employeeMap, unitMap, backupTransfers, units]);
 
   // Filter based on search query (unit code or operator name) and group id
   const filteredResolvedSettings = useMemo(() => {
@@ -405,12 +611,18 @@ export default function FieldMonitor({
   // Units that are not yet configured in setting
   const unconfiguredUnits = useMemo(() => {
     const configuredUnitIds = new Set(settings.map(s => s.unitId));
+    const filledUnconfiguredUnitIds = new Set(
+      resolvedSettings
+        .filter(item => (item as any).isUnconfiguredTarget && item.activeOperator)
+        .map(item => item.unit?.id)
+    );
+
     return units.filter(u => {
       const matchesSearch = u.unitCode.toLowerCase().includes(searchQuery.toLowerCase()) || 
                             u.brand.toLowerCase().includes(searchQuery.toLowerCase());
-      return !configuredUnitIds.has(u.id) && matchesSearch;
+      return !configuredUnitIds.has(u.id) && !filledUnconfiguredUnitIds.has(u.id) && matchesSearch;
     });
-  }, [units, settings, searchQuery]);
+  }, [units, settings, searchQuery, resolvedSettings]);
 
   // Active master operators who are currently standby (on-duty but not auto-dispatched or manually transferred out)
   const standbyMastersList = useMemo(() => {
@@ -551,10 +763,32 @@ export default function FieldMonitor({
       {/* 1. Header Board */}
       <div className="bg-white text-slate-800 p-5 border-b border-slate-200 shadow-sm">
         <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
-          <div>
+          <div className="flex items-center gap-3">
             <h1 className="text-xl font-black tracking-tight text-slate-900 mt-1">
               Dashboard Unit
             </h1>
+            <button
+              id="export-pdf-btn"
+              onClick={handleExportPDF}
+              disabled={isExporting}
+              className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-black rounded-lg border shadow-xs transition-all cursor-pointer select-none mt-1 ${
+                isExporting
+                  ? 'bg-slate-100 text-slate-400 border-slate-200 cursor-not-allowed animate-pulse'
+                  : 'bg-white hover:bg-slate-50 text-slate-700 hover:text-slate-900 border-slate-250 active:scale-95'
+              }`}
+            >
+              {isExporting ? (
+                <>
+                  <div className="animate-spin rounded-full h-3 w-3 border-2 border-slate-400 border-t-transparent"></div>
+                  <span>Mengekspor...</span>
+                </>
+              ) : (
+                <>
+                  <Download className="h-3.5 w-3.5 text-slate-500" />
+                  <span>Export PDF</span>
+                </>
+              )}
+            </button>
           </div>
 
           {/* Quick Shift Switcher */}
@@ -595,7 +829,7 @@ export default function FieldMonitor({
             </span>
           </div>
 
-          <div className="flex items-center gap-2.5 w-full sm:w-auto justify-end">
+          <div className="flex items-center gap-2.5 w-full sm:w-auto justify-end" id="date-selector-part">
             <span className="text-[10px] text-slate-500 font-black uppercase tracking-wider font-mono">PILIH TANGGAL:</span>
             <input
               type="date"
@@ -608,7 +842,7 @@ export default function FieldMonitor({
       </div>
 
       {/* 2. Board Controls (Filter & Search) */}
-      <div className="bg-white p-4 border-b border-slate-200 flex flex-col md:flex-row gap-3 shadow-sm">
+      <div className="bg-white p-4 border-b border-slate-200 flex flex-col md:flex-row gap-3 shadow-sm" id="board-controls-area">
         <div className="relative flex-1">
           <Search className="absolute left-3 top-2.5 h-4 w-4 text-slate-400" />
           <input
@@ -651,7 +885,7 @@ export default function FieldMonitor({
       </div>
 
       {/* 3. Monitor Active Grid (Blueprint layout from Image 1) */}
-      <div className="flex-1 p-6 overflow-y-auto bg-slate-100">
+      <div className="flex-1 p-6 overflow-y-auto bg-slate-100" id="field-monitor-scroll-area">
         {/* If no configurations match and no unconfigured units */}
         {filteredResolvedSettings.length === 0 && unconfiguredUnits.length === 0 && (
           <div className="text-center py-12 bg-white rounded-lg border border-dashed border-slate-300 p-8 max-w-md mx-auto mt-6">
@@ -679,7 +913,7 @@ export default function FieldMonitor({
               {/* Compact Responsive Grid: 6 columns horizontally as minimum on desktop views */}
               <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 xl:grid-cols-8 2xl:grid-cols-10 gap-2">
                  {/* 1. Render Configured Units in this category */}
-                 {category.resolvedSettings.map(({ setting, unit, activeOperator, activeRoleStatus, isFilledByMaster, backupFromSlot, originalOperator, dispatchedTo, isConfiguredEmpty, isFilledByBackupTransfer }) => {
+                 {category.resolvedSettings.map(({ setting, unit, activeOperator, activeRoleStatus, isFilledByMaster, backupFromSlot, originalOperator, dispatchedTo, isConfiguredEmpty, isFilledByBackupTransfer, isUnitBroken, isFilledByBreakdownRelocation, breakdownOperatorFromUnitCode }) => {
                    if (!unit) return null;
                    const isOff = activeRoleStatus === 'OFF' || !activeOperator;
                    const isMasterGroup = setting.groupId === 'master';
@@ -689,12 +923,16 @@ export default function FieldMonitor({
                        key={setting.id}
                        layoutId={`field-card-${setting.id}`}
                        className={`select-none bg-white border rounded-lg shadow-sm flex flex-col overflow-hidden transition-all duration-200 cursor-pointer ${
-                         isOff 
+                         isUnitBroken
+                           ? 'border-rose-350 bg-rose-50/10 hover:border-rose-400 hover:shadow-md'
+                         : isOff 
                            ? 'border-slate-200 bg-slate-50' 
                            : isMasterGroup
                              ? dispatchedTo
                                ? 'border-emerald-300 hover:border-emerald-500 hover:shadow-md bg-emerald-50/10'
                                : 'border-slate-200 hover:border-slate-400 hover:shadow-md'
+                             : isFilledByBreakdownRelocation
+                               ? selectedShift === 1 ? 'border-amber-400 hover:border-amber-550 hover:shadow-md bg-amber-50/15' : 'border-indigo-400 hover:border-indigo-550 hover:shadow-md bg-indigo-50/15'
                              : selectedShift === 2
                                ? 'border-slate-200 hover:border-indigo-400 hover:shadow-md bg-indigo-50/5'
                                : isFilledByMaster
@@ -707,12 +945,16 @@ export default function FieldMonitor({
                      >
                        {/* Compact Unit Code Header */}
                        <div className={`py-1.5 px-2 text-center border-b font-extrabold font-mono tracking-wider text-xs ${
-                         isOff 
+                         isUnitBroken
+                           ? 'bg-rose-600 border-rose-600 text-white font-black'
+                         : isOff 
                            ? 'bg-slate-100 border-slate-200 text-slate-400' 
                            : isMasterGroup
                              ? dispatchedTo
                                ? 'bg-emerald-600 border-emerald-600 text-white font-black'
                                : 'bg-slate-700 border-slate-700 text-white font-black'
+                             : isFilledByBreakdownRelocation
+                               ? selectedShift === 1 ? 'bg-amber-600 border-amber-600 text-white font-black' : 'bg-indigo-800 border-indigo-800 text-white font-black'
                              : isFilledByBackupTransfer
                                ? selectedShift === 1 ? 'bg-amber-550 border-amber-550 text-slate-950 font-black' : 'bg-indigo-600 border-indigo-600 text-white font-black'
                                : isFilledByMaster
@@ -726,7 +968,19 @@ export default function FieldMonitor({
 
                        {/* Compact Operator Details Body */}
                        <div className="flex-1 p-2 flex flex-col justify-center items-center text-center">
-                         {isOff ? (
+                         {isUnitBroken ? (
+                           <div className="py-2">
+                             <div className="inline-flex items-center gap-1 py-0.5 px-1.5 rounded-full text-[8.5px] font-extrabold uppercase bg-rose-100 text-rose-700 border border-rose-250 mb-1 font-mono tracking-wide">
+                               🚨 {unit.status.toUpperCase()}
+                             </div>
+                             <p className="text-[11px] font-black text-rose-650 tracking-tight uppercase line-clamp-1 truncate">
+                               UNIT PERBAIKAN
+                             </p>
+                             <p className="text-[8px] text-rose-500 font-mono mt-0.5 max-w-full truncate font-extrabold">
+                               Operator Dipindah
+                             </p>
+                           </div>
+                         ) : isOff ? (
                            <div className="py-1">
                              {isConfiguredEmpty ? (
                                <>
@@ -759,18 +1013,22 @@ export default function FieldMonitor({
                              <p className="text-[8px] text-slate-405 font-mono uppercase tracking-wider mb-0.5 font-bold truncate">
                                {isMasterGroup 
                                  ? 'MASTER ON-DUTY' 
-                                 : isFilledByBackupTransfer
-                                   ? 'BACKUP'
-                                   : isFilledByMaster 
-                                     ? 'BACKUP MASTER' 
-                                     : 'OPERATOR'}
+                                 : isFilledByBreakdownRelocation
+                                   ? 'OPERATOR'
+                                   : isFilledByBackupTransfer
+                                     ? 'BACKUP'
+                                     : isFilledByMaster 
+                                       ? 'BACKUP MASTER' 
+                                       : 'OPERATOR'}
                              </p>
                              <h3 className={`text-xs font-black tracking-tight leading-normal line-clamp-1 truncate ${
                                isMasterGroup 
                                  ? dispatchedTo ? 'text-emerald-750 font-black' : 'text-slate-805'
-                                 : isFilledByBackupTransfer
-                                   ? selectedShift === 1 ? 'text-amber-850 font-black' : 'text-indigo-850 font-black'
-                                   : isFilledByMaster ? selectedShift === 1 ? 'text-amber-700 font-black' : 'text-indigo-700 font-black' : 'text-slate-805'
+                                 : isFilledByBreakdownRelocation
+                                   ? selectedShift === 1 ? 'text-amber-900 font-extrabold' : 'text-indigo-900 font-extrabold'
+                                   : isFilledByBackupTransfer
+                                     ? selectedShift === 1 ? 'text-amber-850 font-black' : 'text-indigo-850 font-black'
+                                     : isFilledByMaster ? selectedShift === 1 ? 'text-amber-700 font-black' : 'text-indigo-700 font-black' : 'text-slate-805'
                              }`}>
                                {activeOperator.name}
                              </h3>
@@ -778,10 +1036,22 @@ export default function FieldMonitor({
                                <span className={`w-1.5 h-1.5 rounded-full inline-block shrink-0 ${
                                  isMasterGroup 
                                    ? dispatchedTo ? 'bg-emerald-500 animate-pulse' : 'bg-slate-400' 
-                                   : selectedShift === 1 ? 'bg-amber-500 animate-pulse' : 'bg-indigo-500 animate-pulse'
+                                   : isFilledByBreakdownRelocation
+                                     ? selectedShift === 1 ? 'bg-amber-600 animate-pulse' : 'bg-indigo-650 animate-pulse'
+                                     : selectedShift === 1 ? 'bg-amber-500 animate-pulse' : 'bg-indigo-500 animate-pulse'
                                }`}></span>
                                <span className="truncate">{activeOperator.nrp}</span>
                              </p>
+
+                             {isFilledByBreakdownRelocation && (
+                               <div className={`mt-1.5 px-2 py-0.5 rounded text-[9px] font-black uppercase text-center flex items-center justify-center gap-1 shrink-0 border ${
+                                 selectedShift === 1
+                                   ? 'bg-amber-500/15 text-amber-950 border-amber-500/30'
+                                   : 'bg-indigo-500/15 text-indigo-950 border-indigo-500/30'
+                               }`}>
+                                 ★ PINDAHAN DARI {breakdownOperatorFromUnitCode} ★
+                               </div>
+                             )}
 
                              {isFilledByBackupTransfer && !isMasterGroup && (
                                <div className={`mt-1.5 px-2 py-0.5 rounded text-[10px] font-black uppercase text-center flex items-center justify-center gap-1 shrink-0 border ${
