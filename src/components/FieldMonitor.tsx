@@ -245,13 +245,10 @@ export default function FieldMonitor({
               else if ((cand.specializations || []).includes(unit.type)) {
                 score += 10;
               }
-              // 6. Low Priority: General fallback
-              else {
-                score += 1;
-              }
 
               return { cand, score };
-            });
+            })
+            .filter(item => item.score > 0);
 
           // Sort candidates by score descending
           scoredCandidates.sort((a, b) => b.score - a.score);
@@ -414,6 +411,90 @@ export default function FieldMonitor({
       return !configuredUnitIds.has(u.id) && matchesSearch;
     });
   }, [units, settings, searchQuery]);
+
+  // Active master operators who are currently standby (on-duty but not auto-dispatched or manually transferred out)
+  const standbyMastersList = useMemo(() => {
+    const list: Array<{
+      setting: UnitSetting;
+      activeOperator: Employee;
+      slotCode: string;
+      priorities: string[];
+    }> = [];
+
+    // Filter master settings
+    settings.forEach(s => {
+      if (s.groupId === 'master') {
+        const mShiftInfo = calculateShift(s, selectedDate);
+        const mop1 = employeeMap.get(s.operator1Id);
+        const mop2 = employeeMap.get(s.operator2Id);
+
+        let activeMop: Employee | null = null;
+        let activeRole: 'S' | 'M' | 'OFF' = 'OFF';
+
+        if (selectedShift === 1) { // Shift Siang
+          if (mShiftInfo.operator1Role === 'S') {
+            activeMop = mop1 || null;
+            activeRole = 'S';
+          } else if (mShiftInfo.operator2Role === 'S') {
+            activeMop = mop2 || null;
+            activeRole = 'S';
+          }
+        } else { // Shift Malam
+          if (mShiftInfo.operator1Role === 'M') {
+            activeMop = mop1 || null;
+            activeRole = 'M';
+          } else if (mShiftInfo.operator2Role === 'M') {
+            activeMop = mop2 || null;
+            activeRole = 'M';
+          }
+        }
+
+        if (activeMop && activeMop.status === 'Active' && activeRole !== 'OFF') {
+          // Check if manually transferred out
+          const activeTransfersForThisShift = (backupTransfers || []).filter(
+            bt => bt.date === selectedDate && Number(bt.shift) === Number(selectedShift)
+          );
+          const isManuallyTransferred = activeTransfersForThisShift.some(bt => bt.operatorId === activeMop!.id);
+          
+          if (!isManuallyTransferred) {
+            // Check if automatically assigned to backup any vacant unit
+            const slotCode = s.masterSlotCode || 'M-1';
+            const isAutoDispatched = resolvedSettings.some(item => 
+              item.setting.groupId === 'utama' && 
+              item.isFilledByMaster && 
+              item.backupFromSlot === slotCode
+            );
+
+            if (!isAutoDispatched) {
+              const priorities = [s.backupPriorityType1, s.backupPriorityType2].filter(Boolean) as string[];
+              list.push({
+                setting: s,
+                activeOperator: activeMop,
+                slotCode,
+                priorities
+              });
+            }
+          }
+        }
+      }
+    });
+
+    return list;
+  }, [settings, selectedDate, selectedShift, employeeMap, backupTransfers, resolvedSettings]);
+
+  // Filter standby master operators based on search query and group filter
+  const filteredStandbyMasters = useMemo(() => {
+    return standbyMastersList.filter(m => {
+      const matchesSearch = 
+        m.slotCode.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        m.activeOperator.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        m.activeOperator.nrp.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        m.priorities.some(p => p.toLowerCase().includes(searchQuery.toLowerCase()));
+
+      const matchesGroup = selectedGroupFilter === 'all' || selectedGroupFilter === 'master' || selectedGroupFilter === 'utama';
+      return matchesSearch && matchesGroup;
+    });
+  }, [standbyMastersList, searchQuery, selectedGroupFilter]);
 
   // Group both resolved settings and unconfigured units by their Category/Type (e.g. Wheel Loader, Dump Truck, etc.)
   const categorizedUnits = useMemo(() => {
@@ -595,8 +676,8 @@ export default function FieldMonitor({
                 </span>
               </div>
 
-              {/* Compact Responsive Grid: 6 columns horizontally on xl screens */}
-              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-3">
+              {/* Compact Responsive Grid: 6 columns horizontally as minimum on desktop views */}
+              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 xl:grid-cols-8 2xl:grid-cols-10 gap-2">
                  {/* 1. Render Configured Units in this category */}
                  {category.resolvedSettings.map(({ setting, unit, activeOperator, activeRoleStatus, isFilledByMaster, backupFromSlot, originalOperator, dispatchedTo, isConfiguredEmpty, isFilledByBackupTransfer }) => {
                    if (!unit) return null;
@@ -679,7 +760,7 @@ export default function FieldMonitor({
                                {isMasterGroup 
                                  ? 'MASTER ON-DUTY' 
                                  : isFilledByBackupTransfer
-                                   ? 'MOBILISASI BACKUP'
+                                   ? 'BACKUP'
                                    : isFilledByMaster 
                                      ? 'BACKUP MASTER' 
                                      : 'OPERATOR'}
@@ -708,7 +789,7 @@ export default function FieldMonitor({
                                    ? 'bg-amber-500/10 text-amber-850 border-amber-500/20'
                                    : 'bg-indigo-500/10 text-indigo-850 border-indigo-500/20'
                                }`}>
-                                 ★ MOBILISASI BACKUP ★
+                                 ★ BACKUP ★
                                </div>
                              )}
 
@@ -807,6 +888,66 @@ export default function FieldMonitor({
                      </motion.div>
                    );
                  })}
+
+                 {/* 3. Render Standby Master Operators for this category */}
+                 {filteredStandbyMasters
+                   .filter(m => {
+                     if (m.priorities.includes(category.type)) return true;
+                     if (m.priorities.length === 0 && (m.activeOperator.specializations || []).includes(category.type)) return true;
+                     if (m.priorities.length === 0 && (!m.activeOperator.specializations || m.activeOperator.specializations.length === 0) && category.type === 'Other') {
+                       return true;
+                     }
+                     return false;
+                   })
+                   .map(m => {
+                     return (
+                       <motion.div
+                         key={`standby-${m.setting.id}`}
+                         layoutId={`standby-card-${m.setting.id}`}
+                         className="select-none bg-amber-50/10 border border-amber-300 hover:border-amber-400 hover:shadow-md rounded-lg shadow-sm flex flex-col overflow-hidden transition-all duration-200 cursor-pointer"
+                         onClick={() => onNavigateToSetting(m.setting.id)}
+                       >
+                         <div className="py-1.5 px-2 text-center border-b font-extrabold font-mono tracking-wider text-xs bg-amber-400 text-slate-950 font-black flex items-center justify-center gap-1">
+                           <span className="w-1.5 h-1.5 rounded-full bg-slate-950 animate-ping shrink-0"></span>
+                           {m.slotCode}
+                         </div>
+
+                         <div className="flex-1 p-2 flex flex-col justify-center items-center text-center">
+                           <div className="w-full py-1">
+                             <p className="text-[8px] text-amber-700 font-mono uppercase tracking-wider mb-0.5 font-bold truncate">
+                               MASTER STANDBY
+                             </p>
+                             <h3 className="text-xs font-black tracking-tight leading-normal line-clamp-1 truncate text-amber-900">
+                               {m.activeOperator.name}
+                             </h3>
+                             <p className="text-[9px] text-slate-500 font-mono mt-1 flex items-center justify-center gap-1 truncate">
+                               <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse inline-block shrink-0"></span>
+                               <span className="truncate">{m.activeOperator.nrp}</span>
+                             </p>
+
+                             <div className="mt-1.5 px-2 py-0.5 rounded text-[10px] font-black uppercase text-center flex items-center justify-center gap-1 shrink-0 border bg-amber-550/10 text-amber-900 border-amber-500/20">
+                               ★ READY / SIAGA ★
+                             </div>
+
+                             <div className="mt-1 truncate">
+                               <span className="inline-flex text-[8px] px-1 bg-amber-50 text-amber-800 rounded border border-amber-100 font-extrabold uppercase truncate">
+                                 Prioritas: {m.priorities.join(', ') || 'Umum'}
+                                </span>
+                             </div>
+                           </div>
+                         </div>
+
+                         <div className="px-2 py-1 border-t text-[9px] flex items-center justify-between bg-amber-50/20 border-amber-200 text-amber-705">
+                           <span className="truncate max-w-[80px] font-medium font-mono">
+                             Pool Cadangan
+                           </span>
+                           <span className="shrink-0 font-extrabold text-[8px] px-1 py-0.5 rounded uppercase bg-amber-100 text-amber-805 border border-amber-205">
+                             STANDBY
+                           </span>
+                         </div>
+                       </motion.div>
+                     );
+                   })}
               </div>
             </div>
           );
@@ -827,6 +968,10 @@ export default function FieldMonitor({
           <div className="flex items-center gap-1.5">
             <span className="w-2.5 h-2.5 bg-rose-600 rounded-xs"></span>
             <span>No Operator / Kosong</span>
+          </div>
+          <div className="flex items-center gap-1.5">
+            <span className="w-2.5 h-2.5 bg-amber-400 rounded-xs"></span>
+            <span className="text-amber-800 font-semibold">Operator Master Standby</span>
           </div>
         </div>
         <div className="font-mono text-[10px] text-slate-400 font-extrabold uppercase">
