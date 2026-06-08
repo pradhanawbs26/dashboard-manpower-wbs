@@ -78,6 +78,10 @@ export default function FieldMonitor({
       masterSlotCode: string;
       specializations: string[];
       settingId: string;
+      backupPriorityType1?: string;
+      backupPriorityType2?: string;
+      backupPriorityUnitId1?: string;
+      backupPriorityUnitId2?: string;
       isAssignedToUnitCode?: string;
     }> = [];
 
@@ -114,7 +118,11 @@ export default function FieldMonitor({
             employee: activeMop,
             masterSlotCode: s.masterSlotCode || 'M-1',
             specializations: activeMop.specializations || [],
-            settingId: s.id
+            settingId: s.id,
+            backupPriorityType1: s.backupPriorityType1,
+            backupPriorityType2: s.backupPriorityType2,
+            backupPriorityUnitId1: s.backupPriorityUnitId1,
+            backupPriorityUnitId2: s.backupPriorityUnitId2
           });
         }
       }
@@ -161,17 +169,45 @@ export default function FieldMonitor({
         let backupFromSlot: string | undefined = undefined;
 
         if (!isPrimaryActive && unit) {
-          // Find first available master candidate of matching specialization
-          let matchedCandidate = availableMasterCandidates.find(
-            cand => !cand.isAssignedToUnitCode && (cand.specializations || []).includes(unit.type)
-          );
+          // Score each available master candidate for suitability
+          const scoredCandidates = availableMasterCandidates
+            .filter(cand => !cand.isAssignedToUnitCode)
+            .map(cand => {
+              let score = 0;
 
-          // Fallback: search for ANY available master candidate regardless of specialization
-          if (!matchedCandidate) {
-            matchedCandidate = availableMasterCandidates.find(
-              cand => !cand.isAssignedToUnitCode
-            );
-          }
+              // 1. Highest Priority: Specific Unit ID Match #1
+              if (cand.backupPriorityUnitId1 && cand.backupPriorityUnitId1 === unit.id) {
+                score += 1000;
+              }
+              // 2. High Priority: Specific Unit ID Match #2
+              else if (cand.backupPriorityUnitId2 && cand.backupPriorityUnitId2 === unit.id) {
+                score += 500;
+              }
+              // 3. Priority: Unit Type Match #1
+              else if (cand.backupPriorityType1 && cand.backupPriorityType1 === unit.type) {
+                score += 200;
+              }
+              // 4. Priority: Unit Type Match #2
+              else if (cand.backupPriorityType2 && cand.backupPriorityType2 === unit.type) {
+                score += 100;
+              }
+              // 5. Normal: Match Specialization
+              else if ((cand.specializations || []).includes(unit.type)) {
+                score += 10;
+              }
+              // 6. Low Priority: General fallback
+              else {
+                score += 1;
+              }
+
+              return { cand, score };
+            });
+
+          // Sort candidates by score descending
+          scoredCandidates.sort((a, b) => b.score - a.score);
+
+          // Select the best candidate (if there is at least one)
+          const matchedCandidate = scoredCandidates.length > 0 ? scoredCandidates[0].cand : null;
 
           if (matchedCandidate) {
             matchedCandidate.isAssignedToUnitCode = unit.unitCode;
@@ -508,7 +544,7 @@ export default function FieldMonitor({
                                ? 'border-emerald-300 hover:border-emerald-500 hover:shadow-md bg-emerald-50/10'
                                : 'border-slate-200 hover:border-slate-400 hover:shadow-md'
                              : isFilledByMaster
-                               ? 'border-amber-300 hover:border-amber-500 hover:shadow-md bg-amber-50/10'
+                               ? selectedShift === 1 ? 'border-amber-300 hover:border-amber-500 hover:shadow-md bg-amber-50/10' : 'border-indigo-300 hover:border-indigo-500 hover:shadow-md bg-indigo-50/10'
                                : selectedShift === 1 
                                  ? 'border-slate-200 hover:border-amber-400 hover:shadow-md' 
                                  : 'border-slate-200 hover:border-indigo-400 hover:shadow-md'
@@ -524,7 +560,7 @@ export default function FieldMonitor({
                                ? 'bg-emerald-600 border-emerald-600 text-white font-black'
                                : 'bg-slate-700 border-slate-700 text-white font-black'
                              : isFilledByMaster
-                               ? 'bg-amber-500 border-amber-500 text-slate-950 font-black'
+                               ? selectedShift === 1 ? 'bg-amber-500 border-amber-500 text-slate-950 font-black' : 'bg-indigo-600 border-indigo-600 text-white font-black'
                                : selectedShift === 1 
                                  ? 'bg-amber-400 border-amber-400 text-slate-950 font-black' 
                                  : 'bg-indigo-600 border-indigo-600 text-white font-black'
@@ -558,7 +594,7 @@ export default function FieldMonitor({
                              <h3 className={`text-xs font-black tracking-tight leading-normal line-clamp-1 truncate ${
                                isMasterGroup 
                                  ? dispatchedTo ? 'text-emerald-700 font-black' : 'text-slate-805'
-                                 : isFilledByMaster ? 'text-amber-700 font-black' : 'text-slate-805'
+                                 : isFilledByMaster ? selectedShift === 1 ? 'text-amber-700 font-black' : 'text-indigo-700 font-black' : 'text-slate-805'
                              }`}>
                                {activeOperator.name}
                              </h3>
@@ -566,14 +602,18 @@ export default function FieldMonitor({
                                <span className={`w-1.5 h-1.5 rounded-full inline-block shrink-0 ${
                                  isMasterGroup 
                                    ? dispatchedTo ? 'bg-emerald-500 animate-pulse' : 'bg-slate-400' 
-                                   : 'bg-amber-500 animate-pulse'
+                                   : selectedShift === 1 ? 'bg-amber-500 animate-pulse' : 'bg-indigo-500 animate-pulse'
                                }`}></span>
                                <span className="truncate">{activeOperator.nrp}</span>
                              </p>
 
-                             {isFilledByMaster && backupFromSlot && (
-                               <div className="mt-1 text-[8px] px-1 bg-amber-500/10 text-amber-800 rounded border border-amber-500/20 font-bold flex items-center justify-center gap-0.5 truncate">
-                                 <span className="block bg-amber-500 text-slate-950 px-1 py-0.5 rounded font-black text-[9px] uppercase tracking-wide mb-1.5 animate-pulse">★ OPERATOR MASTER ★</span><span>Via Slot: {backupFromSlot}</span>
+                             {isFilledByMaster && (
+                               <div className={`mt-1.5 px-2 py-1 rounded text-[10px] font-black uppercase text-center flex items-center justify-center gap-1 shrink-0 border ${
+                                 selectedShift === 1
+                                   ? 'bg-amber-500/10 text-amber-855 border-amber-500/20'
+                                   : 'bg-indigo-500/10 text-indigo-855 border-indigo-500/20'
+                               }`}>
+                                 ★ OPERATOR MASTER ★
                                </div>
                              )}
 
@@ -610,7 +650,7 @@ export default function FieldMonitor({
                                  ? 'bg-emerald-100 text-emerald-800 border border-emerald-200'
                                  : 'bg-slate-250 text-slate-600 border border-slate-350'
                                : isFilledByMaster
-                                 ? 'bg-amber-100 text-amber-805 border border-amber-200'
+                                 ? selectedShift === 1 ? 'bg-amber-100 text-amber-805 border border-amber-200' : 'bg-indigo-100 text-indigo-805 border border-indigo-200'
                                  : selectedShift === 1 ? 'bg-amber-100 text-amber-805 border border-amber-205' : 'bg-indigo-100 text-indigo-805 border border-indigo-205'
                            }`}>
                              {selectedShift === 1 ? 'SNG' : 'MLM'}

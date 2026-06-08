@@ -36,6 +36,10 @@ export interface UnitSetting {
   rosterPattern: '6-1' | '13-1' | 'weekly-fixed';
   fixedOffDayOfWeek: number; // 0 = Sunday, 1 = Monday, ..., 6 = Saturday (used only if rosterPattern is weekly-fixed)
   startSiangDate: string;    // YYYY-MM-DD (the reference start date where Operator 1 is Day Shift (Siang) and Operator 2 is Night Shift (Malam))
+  backupPriorityType1?: string;
+  backupPriorityType2?: string;
+  backupPriorityUnitId1?: string;
+  backupPriorityUnitId2?: string;
 }
 
 export interface ShiftInfo {

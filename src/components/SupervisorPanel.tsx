@@ -115,6 +115,10 @@ export default function SupervisorPanel({
   const [setRosterPattern, setSetRosterPattern] = useState<UnitSetting['rosterPattern']>('6-1');
   const [setFixedOffDay, setSetFixedOffDay] = useState(0); // 0 = Sunday
   const [setStartSiangDate, setSetStartSiangDate] = useState('2026-06-01');
+  const [setBackupPriorityType1, setSetBackupPriorityType1] = useState('');
+  const [setBackupPriorityType2, setSetBackupPriorityType2] = useState('');
+  const [setBackupPriorityUnitId1, setSetBackupPriorityUnitId1] = useState('');
+  const [setBackupPriorityUnitId2, setSetBackupPriorityUnitId2] = useState('');
 
   // 8-Day rolling calendar starting point for setting previews (mimics Image 2)
   const [previewStartDate, setPreviewStartDate] = useState('2026-06-01');
@@ -324,7 +328,11 @@ export default function SupervisorPanel({
             operator2Id: setOp2Id,
             rosterPattern: setRosterPattern,
             fixedOffDayOfWeek: setFixedOffDay,
-            startSiangDate: setStartSiangDate
+            startSiangDate: setStartSiangDate,
+            backupPriorityType1: isMaster ? setBackupPriorityType1 : undefined,
+            backupPriorityType2: isMaster ? setBackupPriorityType2 : undefined,
+            backupPriorityUnitId1: isMaster ? setBackupPriorityUnitId1 : undefined,
+            backupPriorityUnitId2: isMaster ? setBackupPriorityUnitId2 : undefined
           }
         : s
       ));
@@ -338,7 +346,11 @@ export default function SupervisorPanel({
         operator2Id: setOp2Id,
         rosterPattern: setRosterPattern,
         fixedOffDayOfWeek: setFixedOffDay,
-        startSiangDate: setStartSiangDate
+        startSiangDate: setStartSiangDate,
+        backupPriorityType1: isMaster ? setBackupPriorityType1 : undefined,
+        backupPriorityType2: isMaster ? setBackupPriorityType2 : undefined,
+        backupPriorityUnitId1: isMaster ? setBackupPriorityUnitId1 : undefined,
+        backupPriorityUnitId2: isMaster ? setBackupPriorityUnitId2 : undefined
       };
       setSettings(prev => [...prev, newSetting]);
     }
@@ -356,6 +368,10 @@ export default function SupervisorPanel({
     setSetRosterPattern('6-1');
     setSetFixedOffDay(0);
     setSetStartSiangDate('2026-06-01');
+    setSetBackupPriorityType1('');
+    setSetBackupPriorityType2('');
+    setSetBackupPriorityUnitId1('');
+    setSetBackupPriorityUnitId2('');
   };
 
   const startAddSetting = (gId: string) => {
@@ -392,6 +408,10 @@ export default function SupervisorPanel({
     setSetRosterPattern(s.rosterPattern);
     setSetFixedOffDay(s.fixedOffDayOfWeek);
     setSetStartSiangDate(s.startSiangDate);
+    setSetBackupPriorityType1(s.backupPriorityType1 || '');
+    setSetBackupPriorityType2(s.backupPriorityType2 || '');
+    setSetBackupPriorityUnitId1(s.backupPriorityUnitId1 || '');
+    setSetBackupPriorityUnitId2(s.backupPriorityUnitId2 || '');
     setSettingFormOpen(true);
   };
 
@@ -1489,6 +1509,98 @@ export default function SupervisorPanel({
                         </div>
                       )}
 
+                      {/* Backup Allocation Priorities (Only for Operator Master Settings) */}
+                      {setGroupId === 'master' && (
+                        <div className="col-span-1 sm:col-span-2 md:col-span-3 mt-2 bg-amber-500/5 border border-amber-500/15 p-4 rounded-lg space-y-4">
+                          <div className="flex items-center gap-2 pb-2 border-b border-amber-500/10">
+                            <span className="text-amber-500 font-extrabold text-xs">★</span>
+                            <h5 className="font-extrabold text-xs text-amber-900 uppercase tracking-wide">
+                              Pengaturan Unit Master
+                            </h5>
+                          </div>
+                          <p className="text-[11px] text-slate-505 leading-relaxed font-semibold font-mono">
+                            Sesuaikan unit prioritas utama yang harus d-backup terlebih dahulu oleh Operator Master ini sebelum beralih ke unit jenis lain.
+                          </p>
+                          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 pt-1">
+                            
+                            {/* Priority Type 1 */}
+                            <div>
+                              <label className="block text-[10px] uppercase text-emerald-800 font-black mb-1 font-mono">1. Jenis Unit Prioritas #1</label>
+                              <select
+                                value={setBackupPriorityType1}
+                                onChange={(e) => setSetBackupPriorityType1(e.target.value)}
+                                className="w-full bg-white border border-slate-200 rounded px-2.5 py-1.5 text-xs text-slate-808 font-bold cursor-pointer focus:outline-none focus:border-amber-500"
+                              >
+                                <option value="">-- Tanpa Prioritas --</option>
+                                <option value="Flat Deck">Flat Deck</option>
+                                <option value="Dump Truck">Dump Truck</option>
+                                <option value="Water Truck">Water Truck</option>
+                                <option value="Wheel Loader">Wheel Loader</option>
+                                <option value="Excavator">Excavator</option>
+                                <option value="Bulldozer">Bulldozer</option>
+                                <option value="Motor Grader">Motor Grader</option>
+                                <option value="Compactor">Compactor</option>
+                              </select>
+                            </div>
+
+                            {/* Priority Type 2 */}
+                            <div>
+                              <label className="block text-[10px] uppercase text-slate-500 font-bold mb-1 font-mono">2. Jenis Unit Prioritas #2</label>
+                              <select
+                                value={setBackupPriorityType2}
+                                onChange={(e) => setSetBackupPriorityType2(e.target.value)}
+                                className="w-full bg-white border border-slate-200 rounded px-2.5 py-1.5 text-xs text-slate-808 font-bold cursor-pointer focus:outline-none focus:border-amber-500"
+                              >
+                                <option value="">-- Tanpa Prioritas --</option>
+                                <option value="Flat Deck">Flat Deck</option>
+                                <option value="Dump Truck">Dump Truck</option>
+                                <option value="Water Truck">Water Truck</option>
+                                <option value="Wheel Loader">Wheel Loader</option>
+                                <option value="Excavator">Excavator</option>
+                                <option value="Bulldozer">Bulldozer</option>
+                                <option value="Motor Grader">Motor Grader</option>
+                                <option value="Compactor">Compactor</option>
+                              </select>
+                            </div>
+
+                            {/* Specific Unit 1 */}
+                            <div>
+                              <label className="block text-[10px] uppercase text-cyan-800 font-black mb-1 font-mono">3. No Unit Prioritas #1</label>
+                              <select
+                                value={setBackupPriorityUnitId1}
+                                onChange={(e) => setSetBackupPriorityUnitId1(e.target.value)}
+                                className="w-full bg-white border border-slate-200 rounded px-2.5 py-1.5 text-xs text-slate-808 font-bold font-mono cursor-pointer focus:outline-none focus:border-amber-500"
+                              >
+                                <option value="">-- Tanpa Prioritas --</option>
+                                {units.map(u => (
+                                  <option key={u.id} value={u.id}>
+                                    {u.unitCode} ({u.type})
+                                  </option>
+                                ))}
+                              </select>
+                            </div>
+
+                            {/* Specific Unit 2 */}
+                            <div>
+                              <label className="block text-[10px] uppercase text-slate-500 font-bold mb-1 font-mono">4. No Unit Prioritas #2</label>
+                              <select
+                                value={setBackupPriorityUnitId2}
+                                onChange={(e) => setSetBackupPriorityUnitId2(e.target.value)}
+                                className="w-full bg-white border border-slate-200 rounded px-2.5 py-1.5 text-xs text-slate-808 font-bold font-mono cursor-pointer focus:outline-none focus:border-amber-500"
+                              >
+                                <option value="">-- Tanpa Prioritas --</option>
+                                {units.map(u => (
+                                  <option key={u.id} value={u.id}>
+                                    {u.unitCode} ({u.type})
+                                  </option>
+                                ))}
+                              </select>
+                            </div>
+
+                          </div>
+                        </div>
+                      )}
+
                     </div>
 
                     <div className="flex justify-end gap-2 border-t border-slate-100 pt-4">
@@ -1503,7 +1615,7 @@ export default function SupervisorPanel({
                         type="submit"
                         className="px-5 py-2 bg-amber-500 hover:bg-amber-600 text-slate-950 font-black rounded text-xs transition flex items-center gap-1 cursor-pointer"
                       >
-                        <Check className="h-3.5 w-3.5" /> Simpan Settingan Rota
+                        <Check className="h-3.5 w-3.5" /> Simpan Settingan Master
                       </button>
                     </div>
                   </form>
@@ -1559,11 +1671,36 @@ export default function SupervisorPanel({
                             </div>
                             <div className="space-y-0.5">
                               <p className="text-sm font-black text-slate-800">{displayBrand}</p>
-                              <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-slate-500 font-mono">
+                              <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-slate-505 font-mono">
                                 <span>Op 1 (Siang): <strong className="text-slate-805 font-bold">{op1?.name || 'TIDAK VALID'}</strong></span>
                                 <span className="text-slate-300">|</span>
                                 <span>Op 2 (Malam): <strong className="text-slate-805 font-bold">{op2?.name || 'TIDAK VALID'}</strong></span>
                               </div>
+                              {isMaster && (setting.backupPriorityType1 || setting.backupPriorityType2 || setting.backupPriorityUnitId1 || setting.backupPriorityUnitId2) && (
+                                <div className="mt-1.5 flex flex-wrap gap-1.5 items-center">
+                                  <span className="text-[9px] font-black text-amber-700 bg-amber-500/10 px-1.5 py-0.5 rounded uppercase tracking-wider font-mono">PRIORITAS GL:</span>
+                                  {setting.backupPriorityType1 && (
+                                    <span className="text-[10px] bg-emerald-50 text-emerald-800 border border-emerald-500/20 px-1.5 py-0.5 rounded font-black uppercase font-mono">
+                                      Jenis #1: {setting.backupPriorityType1}
+                                    </span>
+                                  )}
+                                  {setting.backupPriorityType2 && (
+                                    <span className="text-[10px] bg-slate-100 text-slate-650 border border-slate-250 px-1.5 py-0.5 rounded font-bold uppercase font-mono">
+                                      Jenis #2: {setting.backupPriorityType2}
+                                    </span>
+                                  )}
+                                  {setting.backupPriorityUnitId1 && (
+                                    <span className="text-[10px] bg-cyan-50 text-cyan-800 border border-cyan-500/20 px-1.5 py-0.5 rounded font-black font-mono">
+                                      Unit #1: {unitMap.get(setting.backupPriorityUnitId1)?.unitCode || 'U-?'}
+                                    </span>
+                                  )}
+                                  {setting.backupPriorityUnitId2 && (
+                                    <span className="text-[10px] bg-slate-100 text-slate-650 border border-slate-250 px-1.5 py-0.5 rounded font-mono font-bold">
+                                      Unit #2: {unitMap.get(setting.backupPriorityUnitId2)?.unitCode || 'U-?'}
+                                    </span>
+                                  )}
+                                </div>
+                              )}
                             </div>
                           </div>
 
