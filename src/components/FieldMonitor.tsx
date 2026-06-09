@@ -6,10 +6,8 @@
 import React, { useState, useMemo } from 'react';
 import { HeavyUnit, Employee, UnitSetting, UnitGroup, BackupTransfer } from '../types';
 import { calculateShift, formatIndonesianDate, formatIndonesianDayName } from '../utils/scheduler';
-import { Search, Calendar, ShieldAlert, CheckCircle2, Moon, Sun, AlertTriangle, ListFilter, Users, Download } from 'lucide-react';
+import { Search, Calendar, ShieldAlert, CheckCircle2, Moon, Sun, AlertTriangle, ListFilter, Users } from 'lucide-react';
 import { motion } from 'motion/react';
-import html2canvas from 'html2canvas';
-import { jsPDF } from 'jspdf';
 
 interface FieldMonitorProps {
   units: HeavyUnit[];
@@ -74,84 +72,6 @@ export default function FieldMonitor({
     const mm = String(wib.getMonth() + 1).padStart(2, '0');
     const dd = String(wib.getDate()).padStart(2, '0');
     setSelectedDate(`${yyyy}-${mm}-${dd}`);
-  };
-
-  const [isExporting, setIsExporting] = useState(false);
-
-  const handleExportPDF = async () => {
-    setIsExporting(true);
-    const container = document.getElementById('field-monitor-container');
-    const scrollArea = document.getElementById('field-monitor-scroll-area');
-    const boardControls = document.getElementById('board-controls-area');
-    const dateSelectorPart = document.getElementById('date-selector-part');
-    const exportButton = document.getElementById('export-pdf-btn');
-
-    if (!container) {
-      alert('Dashboard container tidak ditemukan!');
-      setIsExporting(false);
-      return;
-    }
-
-    try {
-      // 1. Temporarily prepare layout for PDF conversion
-      if (exportButton) exportButton.style.display = 'none';
-      if (boardControls) boardControls.style.display = 'none';
-      if (dateSelectorPart) dateSelectorPart.style.display = 'none';
-
-      // Expand scroll area temporarily so all categories are fully visible in the canvas
-      let originalStyleHeight = '';
-      let originalOverflow = '';
-      if (scrollArea) {
-        originalStyleHeight = scrollArea.style.height;
-        originalOverflow = scrollArea.style.overflowY;
-        scrollArea.style.height = 'auto';
-        scrollArea.style.overflowY = 'visible';
-      }
-
-      // We can also temporarily adjust padding or styling if needed
-      // 2. Generate Canvas with modern rendering configuration
-      const canvas = await html2canvas(container, {
-        scale: 2, // ultra clear Retina resolution
-        useCORS: true,
-        logging: false,
-        backgroundColor: '#f8fafc',
-        windowWidth: container.scrollWidth,
-        windowHeight: container.scrollHeight
-      });
-
-      // 3. Restore original UI styles immediately
-      if (exportButton) exportButton.style.display = '';
-      if (boardControls) boardControls.style.display = '';
-      if (dateSelectorPart) dateSelectorPart.style.display = '';
-      if (scrollArea) {
-        scrollArea.style.height = originalStyleHeight;
-        scrollArea.style.overflowY = originalOverflow;
-      }
-
-      // 4. Create the PDF document
-      const imgData = canvas.toDataURL('image/jpeg', 0.95);
-      const isLandscape = canvas.width > canvas.height;
-      const pdf = new jsPDF({
-        orientation: isLandscape ? 'landscape' : 'portrait',
-        unit: 'px',
-        format: [canvas.width / 2, canvas.height / 2]
-      });
-
-      const pdfWidth = pdf.internal.pageSize.getWidth();
-      const pdfHeight = pdf.internal.pageSize.getHeight();
-
-      pdf.addImage(imgData, 'JPEG', 0, 0, pdfWidth, pdfHeight);
-
-      // 5. Trigger download with dynamic filename
-      const formattedDateStr = selectedDate.split('-').reverse().join('-');
-      const shiftStr = selectedShift === 1 ? 'Siang' : 'Malam';
-      pdf.save(`Dashboard_Unit_${formattedDateStr}_Shift_${shiftStr}.pdf`);
-
-    } catch (error) {
-      console.error('Pdf render error:', error);
-    } finally {
-      setIsExporting(false);
-    }
   };
 
   // Get active operator info for each setting on the selected date and shift with automatic master backfilling
@@ -767,28 +687,6 @@ export default function FieldMonitor({
             <h1 className="text-xl font-black tracking-tight text-slate-900 mt-1">
               Dashboard Unit
             </h1>
-            <button
-              id="export-pdf-btn"
-              onClick={handleExportPDF}
-              disabled={isExporting}
-              className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-black rounded-lg border shadow-xs transition-all cursor-pointer select-none mt-1 ${
-                isExporting
-                  ? 'bg-slate-100 text-slate-400 border-slate-200 cursor-not-allowed animate-pulse'
-                  : 'bg-white hover:bg-slate-50 text-slate-700 hover:text-slate-900 border-slate-250 active:scale-95'
-              }`}
-            >
-              {isExporting ? (
-                <>
-                  <div className="animate-spin rounded-full h-3 w-3 border-2 border-slate-400 border-t-transparent"></div>
-                  <span>Mengekspor...</span>
-                </>
-              ) : (
-                <>
-                  <Download className="h-3.5 w-3.5 text-slate-500" />
-                  <span>Export PDF</span>
-                </>
-              )}
-            </button>
           </div>
 
           {/* Quick Shift Switcher */}

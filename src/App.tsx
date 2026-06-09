@@ -12,6 +12,7 @@ import {
   INITIAL_SETTINGS 
 } from './data/seedData';
 import FieldMonitor from './components/FieldMonitor';
+import ResumeOperator from './components/ResumeOperator';
 import SupervisorPanel from './components/SupervisorPanel';
 import { 
   LayoutGrid, Settings2, Columns, Monitor, RefreshCw, Layers, ShieldCheck, 
@@ -76,8 +77,9 @@ export default function App() {
 
   // Workspace layout style:
   // 'monitor_only' = Jendela 1 (Field Monitor Screen) -> Dashboard Unit
+  // 'resume_only' = New Jendela (Operator Resume Screen) -> Resume Operator
   // 'settings_only' = Jendela 2 (Supervisor settings) -> Pengaturan
-  const [layoutMode, setLayoutMode] = useState<'monitor_only' | 'settings_only'>('monitor_only');
+  const [layoutMode, setLayoutMode] = useState<'monitor_only' | 'resume_only' | 'settings_only'>('monitor_only');
 
   // Multi-window navigation bridge: when clicking a card in monitor, auto-expand in settings
   const [activeSettingIdForPanel, setActiveSettingIdForPanel] = useState<string | null>(null);
@@ -351,10 +353,10 @@ export default function App() {
           {/* Logo Brand Brand */}
           <div className="flex items-center gap-3">
             <img 
-              src="https://res.cloudinary.com/dgjnlxf69/image/upload/f_auto,q_auto/Logo_WBS_akrioo" 
-              alt="Logo WBS" 
+              src="https://res.cloudinary.com/dgjnlxf69/image/upload/v1780966725/Logo_Manpower_mciyqs.png" 
+              alt="Logo Manpower" 
               className="h-10 object-contain"
-              id="app-logo-wbs"
+              id="app-logo-manpower"
               referrerPolicy="no-referrer"
             />
             <div>
@@ -401,13 +403,13 @@ export default function App() {
             </div>
 
             {/* View Mode selection */}
-            <div className="flex items-center bg-slate-100 rounded-lg p-1 border border-slate-200 text-xs font-bold">
+            <div className="flex items-center bg-slate-100 rounded-lg p-1 border border-slate-200 text-xs font-bold font-sans">
               <button
                 id="layout-monitor-btn"
                 onClick={() => setLayoutMode('monitor_only')}
                 className={`flex items-center gap-1 px-3 py-1.5 rounded-md transition-all cursor-pointer ${
                   layoutMode === 'monitor_only' 
-                    ? 'bg-amber-500 text-slate-950 font-bold shadow-sm' 
+                    ? 'bg-amber-500 text-slate-950 font-black shadow-sm' 
                     : 'text-slate-600 hover:text-slate-900'
                 }`}
                 title="Tampilkan Dashboard Unit (Monitor Lapangan)"
@@ -417,11 +419,25 @@ export default function App() {
               </button>
 
               <button
+                id="layout-resume-btn"
+                onClick={() => setLayoutMode('resume_only')}
+                className={`flex items-center gap-1 px-3 py-1.5 rounded-md transition-all cursor-pointer ${
+                  layoutMode === 'resume_only' 
+                    ? 'bg-amber-500 text-slate-950 font-black shadow-sm' 
+                    : 'text-slate-600 hover:text-slate-900'
+                }`}
+                title="Tampilkan Resume Operator"
+              >
+                <Layers className="h-3.5 w-3.5 shrink-0 animate-pulse text-amber-600" />
+                <span className="inline">Resume Operator</span>
+              </button>
+ 
+              <button
                 id="layout-settings-btn"
                 onClick={() => setLayoutMode('settings_only')}
                 className={`flex items-center gap-1 px-3 py-1.5 rounded-md transition-all cursor-pointer ${
                   layoutMode === 'settings_only' 
-                    ? 'bg-amber-500 text-slate-950 font-bold shadow-sm' 
+                    ? 'bg-amber-500 text-slate-950 font-black shadow-sm' 
                     : 'text-slate-600 hover:text-slate-900'
                 }`}
                 title="Tampilkan Pengaturan (Panel Konfigurasi)"
@@ -454,6 +470,23 @@ export default function App() {
               selectedDate={selectedDate}
               setSelectedDate={setSelectedDate}
               onNavigateToSetting={handleNavigateToSetting}
+            />
+          </div>
+        )}
+
+        {/* Jendela Tambahan: RESUME OPERATOR */}
+        {layoutMode === 'resume_only' && (
+          <div 
+            id="jendela-resume"
+            className="flex-1 w-full rounded-xl border border-slate-200 overflow-hidden shadow-lg flex flex-col bg-white"
+          >
+            <ResumeOperator 
+              units={units}
+              employees={employees}
+              settings={settings}
+              backupTransfers={backupTransfers}
+              selectedDate={selectedDate}
+              setSelectedDate={setSelectedDate}
             />
           </div>
         )}
