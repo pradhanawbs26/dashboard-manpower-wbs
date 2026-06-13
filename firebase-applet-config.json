@@ -1,9 +1,9 @@
 {
-  "apiKey": "AIzaSyCyWBeM6sTtmtBks_tV_mi_cfU926GrphI",
-  "authDomain": "manpower-wbs.firebaseapp.com",
-  "projectId": "manpower-wbs",
-  "storageBucket": "manpower-wbs.firebasestorage.app",
-  "messagingSenderId": "273555145631",
-  "appId": "1:273555145631:web:34ea2a3ba46ddc5f2333aa",
-  "measurementId": "G-1VYHQWRMXR"
+  "projectId": "hidef-producer-mcf5x",
+  "appId": "1:965158607895:web:5aafbb02406bb0d77fd052",
+  "apiKey": "AIzaSyCVAJWLnkcY2bxn56uAbwJqjRCRwY7q-4o",
+  "authDomain": "hidef-producer-mcf5x.firebaseapp.com",
+  "storageBucket": "hidef-producer-mcf5x.firebasestorage.app",
+  "messagingSenderId": "965158607895",
+  "measurementId": ""
 }

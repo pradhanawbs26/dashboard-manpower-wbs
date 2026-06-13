@@ -18,5 +18,13 @@ service cloud.firestore {
     match /unitSettings/{settingId} {
       allow read, write: if true;
     }
+
+    match /backupTransfers/{transferId} {
+      allow read, write: if true;
+    }
+
+    match /googleSheets/{sheetId} {
+      allow read, write: if true;
+    }
   }
 }

@@ -20,7 +20,7 @@ import {
 } from 'lucide-react';
 import { motion } from 'motion/react';
 import { onAuthStateChanged } from 'firebase/auth';
-import { collection, onSnapshot } from 'firebase/firestore';
+import { collection, onSnapshot, doc } from 'firebase/firestore';
 import { 
   db, 
   auth, 
@@ -29,14 +29,25 @@ import {
   saveDocument, 
   removeDocument, 
   handleFirestoreError, 
-  OperationType 
+  OperationType
 } from './firebase';
+import { 
+  SpreadsheetBreakdown, 
+  fetchSpreadsheetBreakdowns 
+} from './utils/googleSheets';
 
 export default function App() {
   // Cloud Database Sync connection status
   const [cloudSynced, setCloudSynced] = useState(false);
   // Keep track of any connection/permission errors
   const [cloudError, setCloudError] = useState<string | null>(null);
+
+  // Google Sheets integration state
+  const [spreadsheetBreakdowns, setSpreadsheetBreakdowns] = useState<SpreadsheetBreakdown[]>([]);
+  const [isSyncingSheets, setIsSyncingSheets] = useState(false);
+  const [sheetsError, setSheetsError] = useState<string | null>(null);
+  const [lastSyncedSheets, setLastSyncedSheets] = useState<string | null>(null);
+  const [sheetsConnected, setSheetsConnected] = useState(false);
 
   // 1. Core States loaded with localStorage or fallback to Seed Data
   const [units, setUnits] = useState<HeavyUnit[]>(() => {
@@ -343,6 +354,35 @@ export default function App() {
     }, 100);
   };
 
+  const handleSyncSheets = async (silent: boolean = false) => {
+    if (!silent) setIsSyncingSheets(true);
+    try {
+      const dataset = await fetchSpreadsheetBreakdowns('1KDTQ6Ndk4yBWhhbiCr8w5ure8zjtdhNG');
+      setSpreadsheetBreakdowns(dataset);
+      setSheetsConnected(true);
+      setSheetsError(null);
+      setLastSyncedSheets(new Date().toISOString());
+    } catch (err: any) {
+      console.error('Error syncing Google Sheets:', err);
+      if (!silent) {
+        setSheetsError(err instanceof Error ? err.message : String(err));
+      }
+    } finally {
+      if (!silent) setIsSyncingSheets(false);
+    }
+  };
+
+  // Automated background polling every 25 seconds for real-time live synchronization
+  useEffect(() => {
+    handleSyncSheets(true);
+
+    const interval = setInterval(() => {
+      handleSyncSheets(true);
+    }, 25000);
+
+    return () => clearInterval(interval);
+  }, [selectedDate]);
+
   return (
     <div className="min-h-screen bg-slate-100 flex flex-col font-sans selection:bg-amber-400 selection:text-slate-900 overflow-x-hidden antialiased text-slate-700">
       
@@ -470,6 +510,12 @@ export default function App() {
               selectedDate={selectedDate}
               setSelectedDate={setSelectedDate}
               onNavigateToSetting={handleNavigateToSetting}
+              spreadsheetBreakdowns={spreadsheetBreakdowns}
+              isSyncingSheets={isSyncingSheets}
+              onSyncSheets={() => handleSyncSheets(false)}
+              sheetsConnected={sheetsConnected}
+              sheetsError={sheetsError}
+              lastSyncedSheets={lastSyncedSheets}
             />
           </div>
         )}
