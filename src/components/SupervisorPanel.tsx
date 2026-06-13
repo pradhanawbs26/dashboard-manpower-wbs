@@ -42,6 +42,7 @@ interface SupervisorPanelProps {
   selectedDate: string; // From parent for calendar preview sync
   activeSettingIdForPanel?: string | null;
   setActiveSettingIdForPanel?: React.Dispatch<React.SetStateAction<string | null>>;
+  onSystemReset?: () => void;
 }
 
 export default function SupervisorPanel({
@@ -56,7 +57,8 @@ export default function SupervisorPanel({
   setBackupTransfers,
   selectedDate,
   activeSettingIdForPanel,
-  setActiveSettingIdForPanel
+  setActiveSettingIdForPanel,
+  onSystemReset
 }: SupervisorPanelProps) {
   // Main Navigation Menu Tabs (Jendela 2)
   const [activeMenu, setActiveMenu] = useState<'unit_db' | 'employee_db' | 'unit_settings' | 'backup_settings'>('unit_settings');
@@ -487,58 +489,62 @@ export default function SupervisorPanel({
         </div>
 
         {/* Tab switch buttons */}
-        <div className="flex gap-1 px-5 mt-4">
-          <button
-            id="tab-settings-unit"
-            onClick={() => setActiveMenu('unit_settings')}
-            className={`flex items-center gap-2 px-4 py-2.5 text-[10px] font-black uppercase tracking-widest border-b-2 transition-all cursor-pointer ${
-              activeMenu === 'unit_settings'
-                ? 'border-amber-500 text-amber-600'
-                : 'border-transparent text-slate-500 hover:text-slate-800'
-            }`}
-          >
-            <CalendarDays className="h-4 w-4" />
-            <span>SETTINGAN OPERATOR</span>
-          </button>
+        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center px-5 mt-4 gap-3 bg-white pb-1">
+          <div className="flex flex-wrap gap-1">
+            <button
+              id="tab-settings-unit"
+              onClick={() => setActiveMenu('unit_settings')}
+              className={`flex items-center gap-2 px-4 py-2.5 text-[10px] font-black uppercase tracking-widest border-b-2 transition-all cursor-pointer ${
+                activeMenu === 'unit_settings'
+                  ? 'border-amber-500 text-amber-600 bg-amber-500/5'
+                  : 'border-transparent text-slate-500 hover:text-slate-800'
+              }`}
+            >
+              <CalendarDays className="h-4 w-4" />
+              <span>SETTINGAN OPERATOR</span>
+            </button>
 
-          <button
-            id="tab-settings-backup"
-            onClick={() => setActiveMenu('backup_settings')}
-            className={`flex items-center gap-2 px-4 py-2.5 text-[10px] font-black uppercase tracking-widest border-b-2 transition-all cursor-pointer ${
-              activeMenu === 'backup_settings'
-                ? 'border-amber-500 text-amber-600'
-                : 'border-transparent text-slate-500 hover:text-slate-800'
-            }`}
-          >
-            <RefreshCw className="h-4 w-4 text-indigo-505 shrink-0" />
-            <span>SETTINGAN BACKUP</span>
-          </button>
+            <button
+              id="tab-settings-backup"
+              onClick={() => setActiveMenu('backup_settings')}
+              className={`flex items-center gap-2 px-4 py-2.5 text-[10px] font-black uppercase tracking-widest border-b-2 transition-all cursor-pointer ${
+                activeMenu === 'backup_settings'
+                  ? 'border-amber-500 text-amber-600 bg-amber-500/5'
+                  : 'border-transparent text-slate-500 hover:text-slate-800'
+              }`}
+            >
+              <RefreshCw className="h-4 w-4 text-indigo-505 shrink-0" />
+              <span>SETTINGAN BACKUP</span>
+            </button>
 
-          <button
-            id="tab-unit-db"
-            onClick={() => setActiveMenu('unit_db')}
-            className={`flex items-center gap-2 px-4 py-2.5 text-[10px] font-black uppercase tracking-widest border-b-2 transition-all cursor-pointer ${
-              activeMenu === 'unit_db'
-                ? 'border-amber-500 text-amber-600'
-                : 'border-transparent text-slate-500 hover:text-slate-800'
-            }`}
-          >
-            <Truck className="h-4 w-4" />
-            <span>DATABASE UNIT</span>
-          </button>
+            <button
+              id="tab-unit-db"
+              onClick={() => setActiveMenu('unit_db')}
+              className={`flex items-center gap-2 px-4 py-2.5 text-[10px] font-black uppercase tracking-widest border-b-2 transition-all cursor-pointer ${
+                activeMenu === 'unit_db'
+                  ? 'border-amber-500 text-amber-600 bg-amber-500/5'
+                  : 'border-transparent text-slate-500 hover:text-slate-800'
+              }`}
+            >
+              <Truck className="h-4 w-4" />
+              <span>DATABASE UNIT</span>
+            </button>
 
-          <button
-            id="tab-employee-db"
-            onClick={() => setActiveMenu('employee_db')}
-            className={`flex items-center gap-2 px-4 py-2.5 text-[10px] font-black uppercase tracking-widest border-b-2 transition-all cursor-pointer ${
-              activeMenu === 'employee_db'
-                ? 'border-amber-500 text-amber-600'
-                : 'border-transparent text-slate-500 hover:text-slate-800'
-            }`}
-          >
-            <Users className="h-4 w-4" />
-            <span>Database Karyawan</span>
-          </button>
+            <button
+              id="tab-employee-db"
+              onClick={() => setActiveMenu('employee_db')}
+              className={`flex items-center gap-2 px-4 py-2.5 text-[10px] font-black uppercase tracking-widest border-b-2 transition-all cursor-pointer ${
+                activeMenu === 'employee_db'
+                  ? 'border-amber-500 text-amber-600 bg-amber-500/5'
+                  : 'border-transparent text-slate-500 hover:text-slate-800'
+              }`}
+            >
+              <Users className="h-4 w-4" />
+              <span>Database Karyawan</span>
+            </button>
+          </div>
+
+
         </div>
       </div>
 

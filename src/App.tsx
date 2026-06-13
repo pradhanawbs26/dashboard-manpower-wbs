@@ -20,7 +20,7 @@ import {
 } from 'lucide-react';
 import { motion } from 'motion/react';
 import { onAuthStateChanged } from 'firebase/auth';
-import { collection, onSnapshot, doc } from 'firebase/firestore';
+import { collection, onSnapshot, doc, getDocs } from 'firebase/firestore';
 import { 
   db, 
   auth, 
@@ -124,110 +124,150 @@ export default function App() {
 
   // Sync real-time Firestore collections onto states automatically
   useEffect(() => {
-    const unsubUnits = onSnapshot(collection(db, 'heavyUnits'), (snapshot) => {
-      const list: HeavyUnit[] = [];
-      snapshot.forEach(doc => {
-        list.push(doc.data() as HeavyUnit);
-      });
-      // Seed Firestore with local state if empty and we have local data
-      if (snapshot.empty && latestUnitsRef.current.length > 0) {
-        latestUnitsRef.current.forEach(item => {
-          saveDocument('heavyUnits', item.id, item);
-        });
-      } else {
-        setUnits(list);
-      }
-      setCloudSynced(true);
-      setCloudError(null);
-    }, (error) => {
-      console.warn('Firestore subscription warning (heavyUnits):', error);
-      setCloudError(`gagal singkron: ${error.message || String(error)}`);
-    });
+    let active = true;
+    let unsubs: (() => void)[] = [];
+    let seedChecked = false;
 
-    const unsubEmployees = onSnapshot(collection(db, 'employees'), (snapshot) => {
-      const list: Employee[] = [];
-      snapshot.forEach(doc => {
-        list.push(doc.data() as Employee);
-      });
-      // Seed Firestore with local state if empty and we have local data
-      if (snapshot.empty && latestEmployeesRef.current.length > 0) {
-        latestEmployeesRef.current.forEach(item => {
-          saveDocument('employees', item.id, item);
-        });
-      } else {
-        setEmployees(list);
-      }
-      setCloudSynced(true);
-      setCloudError(null);
-    }, (error) => {
-      console.warn('Firestore subscription warning (employees):', error);
-      setCloudError(`gagal singkron: ${error.message || String(error)}`);
-    });
+    async function seedDatabaseInBackground() {
+      try {
+        console.log("Memulai seeding data awal ke Firestore di latar belakang...");
+        const seedUnits = latestUnitsRef.current.length > 0 ? latestUnitsRef.current : INITIAL_UNITS;
+        const seedEmployees = latestEmployeesRef.current.length > 0 ? latestEmployeesRef.current : INITIAL_EMPLOYEES;
+        const seedGroups = latestGroupsRef.current.length > 0 ? latestGroupsRef.current : INITIAL_GROUPS;
+        const seedSettings = latestSettingsRef.current.length > 0 ? latestSettingsRef.current : INITIAL_SETTINGS;
+        const seedBackupTransfers = latestBackupTransfersRef.current.length > 0 ? latestBackupTransfersRef.current : [];
 
-    const unsubGroups = onSnapshot(collection(db, 'unitGroups'), (snapshot) => {
-      const list: UnitGroup[] = [];
-      snapshot.forEach(doc => {
-        list.push(doc.data() as UnitGroup);
-      });
-      if (list.length > 0) {
-        setGroups(list);
-      } else {
-        // Automatically seed workspace default structures for Firestore
-        INITIAL_GROUPS.forEach(g => {
-          saveDocument('unitGroups', g.id, g);
-        });
-      }
-      setCloudSynced(true);
-      setCloudError(null);
-    }, (error) => {
-      console.warn('Firestore subscription warning (unitGroups):', error);
-      setCloudError(`gagal singkron: ${error.message || String(error)}`);
-    });
+        // Save everything
+        const jobs = [
+          ...seedUnits.map(item => saveDocument('heavyUnits', item.id, item)),
+          ...seedEmployees.map(item => saveDocument('employees', item.id, item)),
+          ...seedGroups.map(item => saveDocument('unitGroups', item.id, item)),
+          ...seedSettings.map(item => saveDocument('unitSettings', item.id, item)),
+          ...seedBackupTransfers.map(item => saveDocument('backupTransfers', item.id, item))
+        ];
 
-    const unsubSettings = onSnapshot(collection(db, 'unitSettings'), (snapshot) => {
-      const list: UnitSetting[] = [];
-      snapshot.forEach(doc => {
-        list.push(doc.data() as UnitSetting);
-      });
-      // Seed Firestore with local state if empty and we have data
-      if (snapshot.empty && latestSettingsRef.current.length > 0) {
-        latestSettingsRef.current.forEach(item => {
-          saveDocument('unitSettings', item.id, item);
-        });
-      } else {
-        setSettings(list);
+        await Promise.all(jobs);
+        console.log("Seeding Firestore selesai dengan sukses.");
+      } catch (err) {
+        console.error("Gagal melakukan seeding latar belakang:", err);
       }
-      setCloudSynced(true);
-      setCloudError(null);
-    }, (error) => {
-      console.warn('Firestore subscription warning (unitSettings):', error);
-      setCloudError(`gagal singkron: ${error.message || String(error)}`);
-    });
+    }
 
-    const unsubBackupTransfers = onSnapshot(collection(db, 'backupTransfers'), (snapshot) => {
-      const list: BackupTransfer[] = [];
-      snapshot.forEach(doc => {
-        list.push(doc.data() as BackupTransfer);
-      });
-      if (snapshot.empty && latestBackupTransfersRef.current.length > 0) {
-        latestBackupTransfersRef.current.forEach(item => {
-          saveDocument('backupTransfers', item.id, item);
+    function initAndSync() {
+      try {
+        setCloudSynced(false);
+        console.log("Mendaftarkan listeners sinkronisasi Firestore...");
+
+        if (!active) return;
+
+        // 2. Setup real-time listeners immediately without blocking
+        const unsubUnits = onSnapshot(collection(db, 'heavyUnits'), (snapshot) => {
+          const list: HeavyUnit[] = [];
+          snapshot.forEach(doc => {
+            list.push(doc.data() as HeavyUnit);
+          });
+          if (list.length > 0) {
+            setUnits(list);
+            seedChecked = true;
+          } else if (snapshot.empty) {
+            setUnits([]);
+            if (!seedChecked && active) {
+              seedChecked = true;
+              seedDatabaseInBackground();
+            }
+          }
+          setCloudSynced(true);
+          setCloudError(null);
+        }, (error) => {
+          console.warn('Firestore subscription warning (heavyUnits):', error);
+          setCloudError(`gagal singkron: ${error.message || String(error)}`);
         });
-      } else {
-        setBackupTransfers(list);
+
+        const unsubEmployees = onSnapshot(collection(db, 'employees'), (snapshot) => {
+          const list: Employee[] = [];
+          snapshot.forEach(doc => {
+            list.push(doc.data() as Employee);
+          });
+          if (list.length > 0) {
+            setEmployees(list);
+          } else if (snapshot.empty) {
+            setEmployees([]);
+          }
+          setCloudSynced(true);
+          setCloudError(null);
+        }, (error) => {
+          console.warn('Firestore subscription warning (employees):', error);
+          setCloudError(`gagal singkron: ${error.message || String(error)}`);
+        });
+
+        const unsubGroups = onSnapshot(collection(db, 'unitGroups'), (snapshot) => {
+          const list: UnitGroup[] = [];
+          snapshot.forEach(doc => {
+            doc.data(); // access to trigger reactive tracking
+            list.push(doc.data() as UnitGroup);
+          });
+          if (list.length > 0) {
+            setGroups(list);
+          } else if (snapshot.empty) {
+            setGroups([]);
+          }
+          setCloudSynced(true);
+          setCloudError(null);
+        }, (error) => {
+          console.warn('Firestore subscription warning (unitGroups):', error);
+          setCloudError(`gagal singkron: ${error.message || String(error)}`);
+        });
+
+        const unsubSettings = onSnapshot(collection(db, 'unitSettings'), (snapshot) => {
+          const list: UnitSetting[] = [];
+          snapshot.forEach(doc => {
+            list.push(doc.data() as UnitSetting);
+          });
+          if (list.length > 0) {
+            setSettings(list);
+          } else if (snapshot.empty) {
+            setSettings([]);
+          }
+          setCloudSynced(true);
+          setCloudError(null);
+        }, (error) => {
+          console.warn('Firestore subscription warning (unitSettings):', error);
+          setCloudError(`gagal singkron: ${error.message || String(error)}`);
+        });
+
+        const unsubBackupTransfers = onSnapshot(collection(db, 'backupTransfers'), (snapshot) => {
+          const list: BackupTransfer[] = [];
+          snapshot.forEach(doc => {
+            list.push(doc.data() as BackupTransfer);
+          });
+          setBackupTransfers(list);
+          setCloudSynced(true);
+          setCloudError(null);
+        }, (error) => {
+          console.warn('Firestore subscription warning (backupTransfers):', error);
+        });
+
+        if (active) {
+          unsubs = [unsubUnits, unsubEmployees, unsubGroups, unsubSettings, unsubBackupTransfers];
+        } else {
+          unsubUnits();
+          unsubEmployees();
+          unsubGroups();
+          unsubSettings();
+          unsubBackupTransfers();
+        }
+
+      } catch (err: any) {
+        console.error("Gagal melakukan sinkronisasi database:", err);
+        setCloudError(`Gagal sinkronisasi data: ${err.message || String(err)}`);
       }
-      setCloudSynced(true);
-      setCloudError(null);
-    }, (error) => {
-      console.warn('Firestore subscription warning (backupTransfers):', error);
-    });
+    }
+
+    initAndSync();
 
     return () => {
-      unsubUnits();
-      unsubEmployees();
-      unsubGroups();
-      unsubSettings();
-      unsubBackupTransfers();
+      active = false;
+      unsubs.forEach(unsub => unsub());
     };
   }, []);
 
@@ -330,15 +370,27 @@ export default function App() {
   }, [groups]);
 
   // System hard reset function
-  const handleSystemReset = () => {
+  const handleSystemReset = async () => {
     if (confirm('Apakah Anda yakin ingin menyetel ulang seluruh data ke setelan awal pabrik (demo seed data)? Semua data di cloud dan lokal akan diatur ulang.')) {
-      customSetUnits(INITIAL_UNITS);
-      customSetEmployees(INITIAL_EMPLOYEES);
-      customSetSettings(INITIAL_SETTINGS);
-      customSetBackupTransfers([]);
-      setGroups(INITIAL_GROUPS);
-      setSelectedDate('2026-06-04');
-      alert('Sistem berhasil direset!');
+      try {
+        setCloudSynced(false);
+        // Clean out backup transfers
+        customSetBackupTransfers([]);
+        // Overwrite units, employees, and settings
+        customSetUnits(INITIAL_UNITS);
+        customSetEmployees(INITIAL_EMPLOYEES);
+        customSetSettings(INITIAL_SETTINGS);
+        // Overwrite groups locally and in cloud
+        setGroups(INITIAL_GROUPS);
+        for (const g of INITIAL_GROUPS) {
+          await saveDocument('unitGroups', g.id, g);
+        }
+        setCloudSynced(true);
+        alert('Sistem berhasil direset ke data demo bawaan di cloud & lokal!');
+      } catch (err: any) {
+        console.error("Gagal melakukan reset sistem:", err);
+        alert(`Gagal reset data: ${err.message || String(err)}`);
+      }
     }
   };
 
@@ -556,6 +608,7 @@ export default function App() {
               selectedDate={selectedDate}
               activeSettingIdForPanel={activeSettingIdForPanel}
               setActiveSettingIdForPanel={setActiveSettingIdForPanel}
+              onSystemReset={handleSystemReset}
             />
           </div>
         )}
