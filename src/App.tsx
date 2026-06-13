@@ -140,8 +140,8 @@ export default function App() {
       setCloudSynced(true);
       setCloudError(null);
     }, (error) => {
-      setCloudError(error.message || String(error));
-      handleFirestoreError(error, OperationType.GET, 'heavyUnits');
+      console.warn('Firestore subscription warning (heavyUnits):', error);
+      setCloudError(`gagal singkron: ${error.message || String(error)}`);
     });
 
     const unsubEmployees = onSnapshot(collection(db, 'employees'), (snapshot) => {
@@ -160,8 +160,8 @@ export default function App() {
       setCloudSynced(true);
       setCloudError(null);
     }, (error) => {
-      setCloudError(error.message || String(error));
-      handleFirestoreError(error, OperationType.GET, 'employees');
+      console.warn('Firestore subscription warning (employees):', error);
+      setCloudError(`gagal singkron: ${error.message || String(error)}`);
     });
 
     const unsubGroups = onSnapshot(collection(db, 'unitGroups'), (snapshot) => {
@@ -180,8 +180,8 @@ export default function App() {
       setCloudSynced(true);
       setCloudError(null);
     }, (error) => {
-      setCloudError(error.message || String(error));
-      handleFirestoreError(error, OperationType.GET, 'unitGroups');
+      console.warn('Firestore subscription warning (unitGroups):', error);
+      setCloudError(`gagal singkron: ${error.message || String(error)}`);
     });
 
     const unsubSettings = onSnapshot(collection(db, 'unitSettings'), (snapshot) => {
@@ -200,8 +200,8 @@ export default function App() {
       setCloudSynced(true);
       setCloudError(null);
     }, (error) => {
-      setCloudError(error.message || String(error));
-      handleFirestoreError(error, OperationType.GET, 'unitSettings');
+      console.warn('Firestore subscription warning (unitSettings):', error);
+      setCloudError(`gagal singkron: ${error.message || String(error)}`);
     });
 
     const unsubBackupTransfers = onSnapshot(collection(db, 'backupTransfers'), (snapshot) => {
@@ -219,7 +219,7 @@ export default function App() {
       setCloudSynced(true);
       setCloudError(null);
     }, (error) => {
-      // Allow passing through errors for backup transfers gracefully
+      console.warn('Firestore subscription warning (backupTransfers):', error);
     });
 
     return () => {
