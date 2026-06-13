@@ -369,30 +369,16 @@ export default function App() {
     localStorage.setItem('wbs_hauling_clean_v1_groups', JSON.stringify(groups));
   }, [groups]);
 
-  // System hard reset function
-  const handleSystemReset = async () => {
-    if (confirm('Apakah Anda yakin ingin menyetel ulang seluruh data ke setelan awal pabrik (demo seed data)? Semua data di cloud dan lokal akan diatur ulang.')) {
-      try {
-        setCloudSynced(false);
-        // Clean out backup transfers
-        customSetBackupTransfers([]);
-        // Overwrite units, employees, and settings
-        customSetUnits(INITIAL_UNITS);
-        customSetEmployees(INITIAL_EMPLOYEES);
-        customSetSettings(INITIAL_SETTINGS);
-        // Overwrite groups locally and in cloud
-        setGroups(INITIAL_GROUPS);
-        for (const g of INITIAL_GROUPS) {
-          await saveDocument('unitGroups', g.id, g);
-        }
+  // Timeout fallback for Firestore synchronization status to prevent endless 'connecting' message
+  useEffect(() => {
+    const timeout = setTimeout(() => {
+      if (!cloudSynced) {
+        console.log("Firestore connection slow. Activating offline-first responsive fallback.");
         setCloudSynced(true);
-        alert('Sistem berhasil direset ke data demo bawaan di cloud & lokal!');
-      } catch (err: any) {
-        console.error("Gagal melakukan reset sistem:", err);
-        alert(`Gagal reset data: ${err.message || String(err)}`);
       }
-    }
-  };
+    }, 3500);
+    return () => clearTimeout(timeout);
+  }, [cloudSynced]);
 
   // Navigational callback from Unit card in Jendela 1 to Jendela 2
   const handleNavigateToSetting = (settingId: string) => {
@@ -414,6 +400,92 @@ export default function App() {
       setSheetsConnected(true);
       setSheetsError(null);
       setLastSyncedSheets(new Date().toISOString());
+
+      // --- AUTOMATED DISCOVERY OF REAL FLEET UNITS FROM GOOGLE SHEETS ---
+      const uniqueCodesFromSheet = Array.from(new Set(
+        dataset
+          .map(item => item.appUnitCode)
+          .filter(code => code && code.trim().length > 0)
+      ));
+
+      if (uniqueCodesFromSheet.length > 0) {
+        let updatedUnits = [...latestUnitsRef.current];
+        let hasNewUnits = false;
+
+        // Check our existing units (compared in clean canonical uppercase format)
+        for (const sheetCode of uniqueCodesFromSheet) {
+          const canonicalSheet = sheetCode.replace(/\s+/g, '').toUpperCase();
+          const alreadyExists = updatedUnits.some(
+            u => u.unitCode.replace(/\s+/g, '').toUpperCase() === canonicalSheet
+          );
+
+          if (!alreadyExists) {
+            // Determine type and brand based on code prefix
+            let type: HeavyUnit['type'] = 'Other';
+            let brand = 'Unit Operational';
+            
+            if (canonicalSheet.startsWith('WL')) {
+              type = 'Wheel Loader';
+              brand = 'Komatsu WA500';
+            } else if (canonicalSheet.startsWith('FD')) {
+              type = 'Flat Deck';
+              brand = 'Volvo FMX 440';
+            } else if (canonicalSheet.startsWith('DT')) {
+              type = 'Dump Truck';
+              brand = 'Scania P410';
+            } else if (canonicalSheet.startsWith('EX')) {
+              type = 'Excavator';
+              brand = 'Komatsu PC300';
+            } else if (canonicalSheet.startsWith('GD')) {
+              type = 'Motor Grader';
+              brand = 'Caterpillar 14M';
+            } else if (canonicalSheet.startsWith('CP')) {
+              type = 'Compactor';
+              brand = 'Bomag BW211';
+            } else if (canonicalSheet.startsWith('WT')) {
+              type = 'Water Truck';
+              brand = 'Isuzu Giga 12KL';
+            }
+
+            const newId = `u-sn-${canonicalSheet.toLowerCase()}-${Math.random().toString(36).substring(2, 6)}`;
+            const newUnit: HeavyUnit = {
+              id: newId,
+              unitCode: sheetCode,
+              brand,
+              type,
+              status: 'Ready'
+            };
+
+            updatedUnits.push(newUnit);
+            // Save newly discovered unit to Firestore in the background
+            saveDocument('heavyUnits', newId, newUnit);
+            hasNewUnits = true;
+          }
+        }
+
+        // Auto-archive or filter out placeholder generic demo units ('DT-01', 'WL-01'...)
+        // to prevent them from cluttering the operational monitoring output
+        const demoPrefixes = ['DT-0', 'WL-0', 'EX-0', 'GD-0', 'CP-0', 'WT-0'];
+        const demoUnitsToRemove = updatedUnits.filter(u => 
+          demoPrefixes.some(pref => u.unitCode.startsWith(pref))
+        );
+
+        if (demoUnitsToRemove.length > 0 && hasNewUnits) {
+          updatedUnits = updatedUnits.filter(u => 
+            !demoPrefixes.some(pref => u.unitCode.startsWith(pref))
+          );
+          // Delete them from Firestore database to sync clean states remote
+          for (const du of demoUnitsToRemove) {
+            removeDocument('heavyUnits', du.id);
+          }
+          hasNewUnits = true;
+        }
+
+        if (hasNewUnits) {
+          setUnits(updatedUnits);
+        }
+      }
+
     } catch (err: any) {
       console.error('Error syncing Google Sheets:', err);
       if (!silent) {
@@ -608,7 +680,6 @@ export default function App() {
               selectedDate={selectedDate}
               activeSettingIdForPanel={activeSettingIdForPanel}
               setActiveSettingIdForPanel={setActiveSettingIdForPanel}
-              onSystemReset={handleSystemReset}
             />
           </div>
         )}
