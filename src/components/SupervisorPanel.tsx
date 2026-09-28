@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { HeavyUnit, Employee, UnitSetting, UnitGroup, BackupTransfer, FTWRecord } from '../types';
 import { calculateShift, generateDateRange, formatIndonesianDayName, formatIndonesianDate } from '../utils/scheduler';
 import { 
@@ -22,7 +22,7 @@ import {
 import { 
   Building2, Truck, Users, Settings, Plus, Pencil, Trash2, Check, X, 
   HelpCircle, AlertCircle, Info, Calendar, CalendarDays, Eye, RefreshCw, Search, Sun, Moon,
-  HeartPulse, Sparkles, Filter, ChevronRight, Clock, ShieldCheck, Zap
+  HeartPulse, Sparkles, Filter, ChevronRight, ChevronDown, ChevronUp, Clock, ShieldCheck, Zap
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
@@ -178,8 +178,18 @@ export default function SupervisorPanel({
   const [simNotes, setSimNotes] = useState('');
   const [simIsLoading, setSimIsLoading] = useState(false);
 
-  // 8-Day rolling calendar starting point for setting previews (mimics Image 2)
-  const [previewStartDate, setPreviewStartDate] = useState('2026-06-01');
+  // 8-Day rolling calendar starting point for setting previews (automatically follows today's date)
+  const [previewStartDate, setPreviewStartDate] = useState(selectedDate || '2026-09-28');
+
+  // Keep previewStartDate synchronized whenever selectedDate changes
+  useEffect(() => {
+    if (selectedDate) {
+      setPreviewStartDate(selectedDate);
+    }
+  }, [selectedDate]);
+
+  // Collapsible toggle for FTW Online synchronization bar (default closed for clean, compact UI)
+  const [isFtwDrawerOpen, setIsFtwDrawerOpen] = useState(false);
 
   // Helper map lookups for fast calculations
   const unitMap = useMemo(() => new Map(units.map(u => [u.id, u])), [units]);
@@ -317,22 +327,27 @@ export default function SupervisorPanel({
 
   // Computed and filtered/sorted lists for Database Employees (Karyawan)
   const filteredAndSortedEmployees = useMemo(() => {
-    let result = [...employees];
+    // Only consider genuine employees with a valid name or nrp, ignoring internal IDs
+    let result = employees.filter(e => e && !e.id?.startsWith('_') && ((e.name && e.name.trim()) || (e.nrp && e.nrp.trim())));
 
     // Filter by search query
     if (empSearchQuery.trim()) {
-      const q = empSearchQuery.toLowerCase();
-      result = result.filter(e => 
-        e.nrp.toLowerCase().includes(q) || 
-        e.name.toLowerCase().includes(q) ||
-        (e.specializations || []).some(spec => spec.toLowerCase().includes(q))
-      );
+      const q = empSearchQuery.toLowerCase().trim();
+      result = result.filter(e => {
+        const nrp = (e.nrp || '').toLowerCase();
+        const name = (e.name || '').toLowerCase();
+        const specs = Array.isArray(e.specializations) ? e.specializations : [];
+        const specMatch = specs.some(spec => (spec || '').toLowerCase().includes(q));
+        const status = (e.status || '').toLowerCase();
+        const roster = (e.rosterPattern || '').toLowerCase();
+        return nrp.includes(q) || name.includes(q) || specMatch || status.includes(q) || roster.includes(q);
+      });
     }
 
     // Sort by selected property
     result.sort((a, b) => {
-      const valA = (a[empSortBy] || '').toString().toLowerCase();
-      const valB = (b[empSortBy] || '').toString().toLowerCase();
+      const valA = ((a[empSortBy] as string) || '').toString().toLowerCase();
+      const valB = ((b[empSortBy] as string) || '').toString().toLowerCase();
       if (valA < valB) return empSortOrder === 'asc' ? -1 : 1;
       if (valA > valB) return empSortOrder === 'asc' ? 1 : -1;
       return 0;
@@ -1531,20 +1546,34 @@ export default function SupervisorPanel({
               className="space-y-6"
             >
               {/* Introduction Box */}
-              <div className="bg-white text-slate-700 p-4 rounded-lg border border-slate-200 flex flex-row items-center justify-between shadow-sm">
-                <div className="flex items-center gap-2">
-                  <Calendar className="text-amber-500 h-5 w-5" />
-                  <span className="text-sm font-black uppercase tracking-wider text-slate-700 font-mono">TGL PREVIEW</span>
+              <div className="bg-white text-slate-700 p-3.5 rounded-lg border border-slate-200 flex flex-row items-center justify-between shadow-xs">
+                <div className="flex items-center gap-2.5">
+                  <div className="p-2 bg-amber-50 text-amber-600 rounded-lg">
+                    <Calendar className="h-5 w-5" />
+                  </div>
+                  <div>
+                    <span className="text-xs font-black uppercase tracking-wider text-slate-800 font-mono">TGL PREVIEW</span>
+                    <p className="text-[11px] text-slate-400 font-medium">Otomatis mengikuti tanggal hari ini</p>
+                  </div>
                 </div>
-                <div className="flex flex-col items-end gap-1.5 shrink-0">
-                  <div className="flex items-center gap-2 bg-slate-50 p-2 rounded border border-slate-200">
+                <div className="flex items-center gap-2 shrink-0">
+                  {previewStartDate !== selectedDate && (
+                    <button
+                      onClick={() => setPreviewStartDate(selectedDate)}
+                      className="text-[11px] font-bold text-amber-700 bg-amber-50 hover:bg-amber-100 border border-amber-200 px-2.5 py-1.5 rounded transition cursor-pointer flex items-center gap-1 font-mono"
+                      title="Kembali ke tanggal hari ini"
+                    >
+                      Hari Ini
+                    </button>
+                  )}
+                  <div className="flex items-center gap-2 bg-slate-50 p-1.5 rounded border border-slate-200">
                     <Calendar className="text-amber-500 h-4 w-4 shrink-0" />
-                    <span className="text-[10px] font-black uppercase text-slate-500 font-mono">Tgl Preview:</span>
+                    <span className="text-[10px] font-black uppercase text-slate-500 font-mono">Tgl:</span>
                     <input
                       type="date"
                       value={previewStartDate}
                       onChange={(e) => e.target.value && setPreviewStartDate(e.target.value)}
-                      className="bg-white text-slate-800 text-xs border border-slate-200 rounded p-1 font-mono focus:outline-none focus:border-amber-550 cursor-pointer"
+                      className="bg-white text-slate-800 text-xs border border-slate-200 rounded p-1 font-mono focus:outline-none focus:border-amber-550 cursor-pointer font-bold"
                     />
                   </div>
                 </div>
@@ -1901,229 +1930,249 @@ export default function SupervisorPanel({
                 </div>
               )}
 
-              {/* FTW Online Synchronization & NIK Monitoring Drawer */}
-              <div className="bg-slate-900 text-white rounded-xl border border-slate-800 shadow-lg overflow-hidden space-y-3 p-4">
+              {/* FTW Online Synchronization & NIK Monitoring (Compact & Collapsible) */}
+              <div className="bg-white rounded-xl border border-slate-200 shadow-xs overflow-hidden transition-all">
                 
-                {/* Header & Controls Bar */}
-                <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 border-b border-slate-800/80 pb-3">
-                  <div className="flex items-start sm:items-center gap-3">
-                    <div className="p-2.5 bg-gradient-to-br from-amber-500 to-amber-600 rounded-xl text-slate-950 font-black shrink-0 shadow-md">
-                      <HeartPulse className="h-5 w-5 text-slate-950 animate-pulse" />
+                {/* Header & Quick Summary Strip */}
+                <div className="p-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                  <div className="flex items-center gap-2.5 flex-wrap">
+                    <div className="p-1.5 bg-amber-500/10 text-amber-600 rounded-lg shrink-0">
+                      <HeartPulse className="h-4 w-4" />
                     </div>
                     <div>
-                      <div className="flex flex-wrap items-center gap-2">
-                        <span className="text-xs font-black uppercase tracking-wider font-mono text-amber-400">
-                          SINKRONISASI NIK FTW ONLINE (FIREBASE ftw-wbs)
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="text-xs font-black uppercase tracking-wider font-mono text-slate-800">
+                          Sinkronisasi NIK FTW
                         </span>
-                        <span className="text-[10px] bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 px-2 py-0.5 rounded font-mono font-bold">
-                          Koleksi: {externalCollectionName}
-                        </span>
-                        <span className="text-[10px] bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 px-2 py-0.5 rounded font-mono font-bold">
-                          Tgl: {selectedDate}
+                        <span className="text-[10px] bg-slate-100 text-slate-600 px-1.5 py-0.5 rounded font-mono font-medium">
+                          {externalCollectionName}
                         </span>
                       </div>
-                      <p className="text-[11px] text-slate-300 mt-1 leading-relaxed">
-                        Data NIK ditarik otomatis dari database Firebase. Karyawan yang mengisi pada jam <strong>16.00 - 18.00</strong> otomatis masuk ke <strong>Shift 2 (Malam)</strong> dan langsung tercermin pada slot operator unit terkait.
-                      </p>
+                    </div>
+
+                    {/* Quick Indicator Chips */}
+                    <div className="flex items-center gap-1.5 ml-0 sm:ml-2 flex-wrap">
+                      <span className="inline-flex items-center gap-1 text-[11px] font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-200">
+                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
+                        {ftwSummaryStats.shift1Fit + ftwSummaryStats.shift2Fit} Fit
+                      </span>
+
+                      {(ftwSummaryStats.shift1Unfit + ftwSummaryStats.shift2Unfit) > 0 && (
+                        <span className="inline-flex items-center gap-1 text-[11px] font-bold text-rose-700 bg-rose-50 px-2 py-0.5 rounded-full border border-rose-200 animate-pulse">
+                          <span className="w-1.5 h-1.5 rounded-full bg-rose-600"></span>
+                          {ftwSummaryStats.shift1Unfit + ftwSummaryStats.shift2Unfit} Unfit
+                        </span>
+                      )}
+
+                      <span className="text-[10px] font-mono text-slate-500 bg-slate-50 border border-slate-200 px-1.5 py-0.5 rounded">
+                        ☀️ S1: {ftwSummaryStats.shift1Count}
+                      </span>
+                      <span className="text-[10px] font-mono text-indigo-700 bg-indigo-50 border border-indigo-200 px-1.5 py-0.5 rounded">
+                        🌙 S2: {ftwSummaryStats.shift2Count}
+                      </span>
                     </div>
                   </div>
 
-                  {/* Action buttons */}
-                  <div className="flex flex-wrap items-center gap-2 shrink-0">
+                  {/* Actions & Drawer Toggle */}
+                  <div className="flex items-center gap-2 shrink-0 self-end sm:self-auto">
                     <button
                       onClick={handleDirectPullExternalFtw}
                       disabled={isPullingFtw}
-                      className="px-3.5 py-1.5 bg-amber-500 hover:bg-amber-400 disabled:bg-slate-700 text-slate-950 disabled:text-slate-400 font-black rounded-lg text-xs transition cursor-pointer flex items-center gap-1.5 shadow-sm active:scale-95"
-                      title="Tarik data pengisian FTW dari Firebase ftw-wbs secara langsung"
+                      className="px-2.5 py-1.5 bg-amber-500 hover:bg-amber-400 disabled:bg-slate-200 text-slate-950 font-black rounded-lg text-xs transition cursor-pointer flex items-center gap-1.5 shadow-2xs"
+                      title="Tarik data pengisian FTW dari Firebase ftw-wbs"
                     >
-                      <RefreshCw className={`h-3.5 w-3.5 ${isPullingFtw ? 'animate-spin' : ''}`} />
-                      <span>{isPullingFtw ? 'Menarik Data...' : 'Tarik NIK dari Firebase'}</span>
-                    </button>
-
-                    <button
-                      onClick={() => setIsSimModalOpen(true)}
-                      className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white font-bold rounded-lg text-xs transition cursor-pointer flex items-center gap-1.5 shadow-sm"
-                      title="Tes isi FTW pada jam 16.00-18.00 untuk menguji Shift 2"
-                    >
-                      <Zap className="h-3.5 w-3.5 text-amber-300" />
-                      <span>Tes Jam 16-18 (Shift 2)</span>
+                      <RefreshCw className={`h-3 w-3 ${isPullingFtw ? 'animate-spin' : ''}`} />
+                      <span>{isPullingFtw ? 'Menarik...' : 'Tarik NIK'}</span>
                     </button>
 
                     {onOpenFTWModal && (
                       <button
                         onClick={onOpenFTWModal}
-                        className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 font-bold rounded-lg text-xs transition cursor-pointer flex items-center gap-1.5 shadow-sm"
+                        className="px-2.5 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-200 font-bold rounded-lg text-xs transition cursor-pointer flex items-center gap-1"
                         title="Buka Panel FTW Lengkap"
                       >
-                        <HeartPulse className="h-3.5 w-3.5 text-rose-400" />
+                        <HeartPulse className="h-3 w-3 text-rose-500" />
                         <span>Panel FTW</span>
                       </button>
                     )}
+
+                    <button
+                      onClick={() => setIsFtwDrawerOpen(!isFtwDrawerOpen)}
+                      className={`px-2.5 py-1.5 rounded-lg text-xs font-bold transition cursor-pointer flex items-center gap-1 border ${
+                        isFtwDrawerOpen 
+                          ? 'bg-slate-800 text-white border-slate-800' 
+                          : 'bg-white text-slate-700 hover:bg-slate-50 border-slate-300'
+                      }`}
+                      title={isFtwDrawerOpen ? 'Tutup rincian NIK FTW' : 'Buka rincian NIK yang mengisi FTW'}
+                    >
+                      <span>Rincian NIK ({submittedFtwForDay.length})</span>
+                      {isFtwDrawerOpen ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
+                    </button>
                   </div>
                 </div>
 
                 {/* Status Notice if any */}
                 {pullFtwNotice && (
-                  <motion.div 
-                    initial={{ opacity: 0, y: -5 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    className={`p-2.5 rounded-lg text-xs font-mono font-bold flex items-center justify-between gap-2 ${
+                  <div className="px-3.5 pb-2">
+                    <div className={`p-2 rounded-lg text-xs font-mono font-medium flex items-center justify-between gap-2 ${
                       pullFtwNotice.type === 'success' 
-                        ? 'bg-emerald-950/80 text-emerald-300 border border-emerald-500/30' 
-                        : 'bg-rose-950/80 text-rose-300 border border-rose-500/30'
-                    }`}
-                  >
-                    <span>{pullFtwNotice.message}</span>
-                    <button 
-                      onClick={() => setPullFtwNotice(null)} 
-                      className="text-slate-400 hover:text-white text-xs px-1 cursor-pointer"
-                    >
-                      ✕
-                    </button>
-                  </motion.div>
+                        ? 'bg-emerald-50 text-emerald-800 border border-emerald-200' 
+                        : 'bg-rose-50 text-rose-800 border border-rose-200'
+                    }`}>
+                      <span>{pullFtwNotice.message}</span>
+                      <button 
+                        onClick={() => setPullFtwNotice(null)} 
+                        className="text-slate-400 hover:text-slate-700 text-xs px-1 cursor-pointer"
+                      >
+                        ✕
+                      </button>
+                    </div>
+                  </div>
                 )}
 
-                {/* Filter and Shift Tabs */}
-                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pt-1">
-                  <div className="flex items-center gap-1.5 flex-wrap">
-                    <span className="text-[10px] text-slate-400 font-mono font-bold uppercase tracking-wider mr-1">Filter Shift:</span>
-                    
-                    <button
-                      onClick={() => setFtwShiftFilter('all')}
-                      className={`px-2.5 py-1 rounded text-[11px] font-bold transition cursor-pointer font-mono ${
-                        ftwShiftFilter === 'all'
-                          ? 'bg-amber-500 text-slate-950 font-black'
-                          : 'bg-slate-800 text-slate-300 hover:bg-slate-750 border border-slate-700'
-                      }`}
+                {/* Collapsible Details Drawer */}
+                <AnimatePresence>
+                  {isFtwDrawerOpen && (
+                    <motion.div
+                      initial={{ height: 0, opacity: 0 }}
+                      animate={{ height: 'auto', opacity: 1 }}
+                      exit={{ height: 0, opacity: 0 }}
+                      className="border-t border-slate-100 bg-slate-50/70 p-3.5 space-y-3"
                     >
-                      Semua Shift ({ftwSummaryStats.totalToday})
-                    </button>
-
-                    <button
-                      onClick={() => setFtwShiftFilter('2')}
-                      className={`px-2.5 py-1 rounded text-[11px] font-bold transition cursor-pointer font-mono flex items-center gap-1 ${
-                        ftwShiftFilter === '2'
-                          ? 'bg-indigo-500 text-white font-black'
-                          : 'bg-slate-800 text-slate-300 hover:bg-slate-750 border border-slate-700'
-                      }`}
-                      title="Filter hanya operator yang masuk Shift 2 (Malam: 15.00-03.59, persiapan 16.00-18.00)"
-                    >
-                      <Moon className="h-3 w-3 text-amber-300" />
-                      <span>Shift 2 Malam (16-18) [{ftwSummaryStats.shift2Count}]</span>
-                    </button>
-
-                    <button
-                      onClick={() => setFtwShiftFilter('1')}
-                      className={`px-2.5 py-1 rounded text-[11px] font-bold transition cursor-pointer font-mono flex items-center gap-1 ${
-                        ftwShiftFilter === '1'
-                          ? 'bg-amber-400 text-slate-950 font-black'
-                          : 'bg-slate-800 text-slate-300 hover:bg-slate-750 border border-slate-700'
-                      }`}
-                      title="Filter hanya operator yang masuk Shift 1 (Siang: 04.00-14.59)"
-                    >
-                      <Sun className="h-3 w-3 text-amber-500" />
-                      <span>Shift 1 Siang [{ftwSummaryStats.shift1Count}]</span>
-                    </button>
-
-                    <button
-                      onClick={() => setFtwShiftFilter('ftw_submitted')}
-                      className={`px-2.5 py-1 rounded text-[11px] font-bold transition cursor-pointer font-mono flex items-center gap-1 ${
-                        ftwShiftFilter === 'ftw_submitted'
-                          ? 'bg-emerald-600 text-white font-black'
-                          : 'bg-slate-800 text-slate-300 hover:bg-slate-750 border border-slate-700'
-                      }`}
-                      title="Filter unit yang operatornya sudah mengisi FTW hari ini"
-                    >
-                      <span>🟢 Sudah Isi FTW ({ftwSummaryStats.totalToday})</span>
-                    </button>
-
-                    {(ftwSummaryStats.shift1Unfit + ftwSummaryStats.shift2Unfit) > 0 && (
-                      <button
-                        onClick={() => setFtwShiftFilter('ftw_unfit')}
-                        className={`px-2.5 py-1 rounded text-[11px] font-bold transition cursor-pointer font-mono flex items-center gap-1 ${
-                          ftwShiftFilter === 'ftw_unfit'
-                            ? 'bg-rose-600 text-white font-black animate-pulse'
-                            : 'bg-rose-950/80 text-rose-300 border border-rose-500/40 hover:bg-rose-900'
-                        }`}
-                        title="Filter operator yang tidak fit dan butuh pengganti"
-                      >
-                        <span>🔴 Unfit ({ftwSummaryStats.shift1Unfit + ftwSummaryStats.shift2Unfit})</span>
-                      </button>
-                    )}
-                  </div>
-
-                  <div className="text-[10px] text-slate-400 font-mono">
-                    Total Isi Hari Ini: <span className="text-emerald-400 font-bold">{ftwSummaryStats.totalToday} Operator</span> (<span className="text-emerald-400">{ftwSummaryStats.shift1Fit + ftwSummaryStats.shift2Fit} Fit</span>, <span className="text-rose-400">{ftwSummaryStats.shift1Unfit + ftwSummaryStats.shift2Unfit} Unfit</span>)
-                  </div>
-                </div>
-
-                {/* Submissions NIK Pill Tray */}
-                <div className="bg-slate-950/60 p-2.5 rounded-lg border border-slate-800">
-                  <div className="flex items-center justify-between pb-1.5 mb-1.5 border-b border-slate-850">
-                    <span className="text-[10px] font-mono font-black uppercase tracking-wider text-slate-400 flex items-center gap-1.5">
-                      <Sparkles className="h-3 w-3 text-amber-400" />
-                      Daftar NIK Karyawan yang Mengisi FTW pada {formatIndonesianDate(selectedDate)}:
-                    </span>
-                    <span className="text-[9px] text-slate-500 font-mono">Klik NIK untuk sorot settingan unit</span>
-                  </div>
-
-                  {submittedFtwForDay.length > 0 ? (
-                    <div className="flex flex-wrap gap-2 max-h-32 overflow-y-auto pr-1">
-                      {submittedFtwForDay.map(rec => {
-                        const recShift = getRecordShift(rec);
-                        const assigned = findOperatorAssignedUnit(rec.nik);
-                        const timeStr = rec.jam || (rec.submittedAt ? new Date(rec.submittedAt).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' }) : '');
-                        const isFit = rec.status === 'fit';
-
-                        return (
+                      {/* Filter Bar & Quick Tools */}
+                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                          <span className="text-[10px] text-slate-500 font-mono font-bold uppercase mr-1">Filter:</span>
+                          
                           <button
-                            key={rec.id}
-                            onClick={() => {
-                              if (assigned?.settingId) {
-                                setExpandedSettingId(assigned.settingId);
-                                const el = document.getElementById(`setting-card-${assigned.settingId}`);
-                                if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' });
-                              } else {
-                                setSettingSearchQuery(rec.nik);
-                              }
-                            }}
-                            className={`group flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[11px] font-mono border transition-all cursor-pointer text-left ${
-                              isFit
-                                ? 'bg-emerald-950/50 hover:bg-emerald-900/60 border-emerald-500/40 text-emerald-200'
-                                : 'bg-rose-950/50 hover:bg-rose-900/60 border-rose-500/50 text-rose-200 animate-pulse'
+                            onClick={() => setFtwShiftFilter('all')}
+                            className={`px-2 py-0.5 rounded text-[11px] font-bold transition cursor-pointer font-mono ${
+                              ftwShiftFilter === 'all'
+                                ? 'bg-amber-500 text-slate-950'
+                                : 'bg-white text-slate-600 hover:bg-slate-100 border border-slate-200'
                             }`}
-                            title={`Klik untuk melihat konfigurasi unit ${assigned ? assigned.unitCode : 'Operator ini'}`}
                           >
-                            <span className="text-xs">{isFit ? '🟢' : '🔴'}</span>
-                            <span className="font-black text-amber-300 font-mono tracking-tight">[{rec.nik}]</span>
-                            <span className="font-extrabold text-white truncate max-w-[120px]">{rec.name}</span>
-                            {timeStr && (
-                              <span className="text-[9.5px] bg-slate-800 text-slate-300 px-1 py-0.2 rounded border border-slate-700">
-                                {timeStr} WIB
-                              </span>
-                            )}
-                            <span className={`text-[9.5px] font-bold px-1 py-0.2 rounded ${
-                              recShift === 2 ? 'bg-indigo-900/70 text-indigo-300' : 'bg-amber-900/70 text-amber-300'
-                            }`}>
-                              {recShift === 2 ? 'Shift 2' : 'Shift 1'}
-                            </span>
-                            {assigned ? (
-                              <span className="text-[9.5px] font-black text-emerald-300 bg-emerald-900/50 px-1.5 py-0.2 rounded border border-emerald-500/30 flex items-center gap-0.5">
-                                ➔ {assigned.unitCode} ({assigned.role === 'S' ? 'S1' : assigned.role === 'M' ? 'S2' : 'OFF'})
-                              </span>
-                            ) : (
-                              <span className="text-[9.5px] text-slate-400 italic">➔ Belum di-setting</span>
-                            )}
+                            Semua ({ftwSummaryStats.totalToday})
                           </button>
-                        );
-                      })}
-                    </div>
-                  ) : (
-                    <div className="py-2 text-center text-xs text-slate-400 font-mono">
-                      Belum ada data NIK yang mengisi FTW untuk shift ini pada tanggal {selectedDate}. Klik <button onClick={handleDirectPullExternalFtw} className="text-amber-400 underline font-bold cursor-pointer">Tarik NIK dari Firebase</button> atau coba <button onClick={() => setIsSimModalOpen(true)} className="text-indigo-300 underline font-bold cursor-pointer">Tes Pengisian Jam 16-18 (Shift 2)</button>.
-                    </div>
+
+                          <button
+                            onClick={() => setFtwShiftFilter('2')}
+                            className={`px-2 py-0.5 rounded text-[11px] font-bold transition cursor-pointer font-mono flex items-center gap-1 ${
+                              ftwShiftFilter === '2'
+                                ? 'bg-indigo-600 text-white'
+                                : 'bg-white text-slate-600 hover:bg-slate-100 border border-slate-200'
+                            }`}
+                          >
+                            <Moon className="h-3 w-3" />
+                            <span>Shift 2 Malam [{ftwSummaryStats.shift2Count}]</span>
+                          </button>
+
+                          <button
+                            onClick={() => setFtwShiftFilter('1')}
+                            className={`px-2 py-0.5 rounded text-[11px] font-bold transition cursor-pointer font-mono flex items-center gap-1 ${
+                              ftwShiftFilter === '1'
+                                ? 'bg-amber-400 text-slate-950 font-black'
+                                : 'bg-white text-slate-600 hover:bg-slate-100 border border-slate-200'
+                            }`}
+                          >
+                            <Sun className="h-3 w-3" />
+                            <span>Shift 1 Siang [{ftwSummaryStats.shift1Count}]</span>
+                          </button>
+
+                          {(ftwSummaryStats.shift1Unfit + ftwSummaryStats.shift2Unfit) > 0 && (
+                            <button
+                              onClick={() => setFtwShiftFilter('ftw_unfit')}
+                              className={`px-2 py-0.5 rounded text-[11px] font-bold transition cursor-pointer font-mono ${
+                                ftwShiftFilter === 'ftw_unfit'
+                                  ? 'bg-rose-600 text-white'
+                                  : 'bg-rose-50 text-rose-700 border border-rose-200'
+                              }`}
+                            >
+                              🔴 Unfit ({ftwSummaryStats.shift1Unfit + ftwSummaryStats.shift2Unfit})
+                            </button>
+                          )}
+                        </div>
+
+                        <button
+                          onClick={() => setIsSimModalOpen(true)}
+                          className="text-[11px] font-bold text-indigo-600 hover:text-indigo-800 flex items-center gap-1 cursor-pointer self-start sm:self-auto font-mono"
+                          title="Simulasi tes pengisian FTW"
+                        >
+                          <Zap className="h-3 w-3 text-amber-500" />
+                          <span>Tes Pengisian Jam 16-18</span>
+                        </button>
+                      </div>
+
+                      {/* Pill Cards Container */}
+                      <div className="bg-white p-2.5 rounded-lg border border-slate-200">
+                        <div className="flex items-center justify-between pb-1.5 mb-2 border-b border-slate-100 text-[10px] text-slate-400 font-mono">
+                          <span className="font-bold uppercase tracking-wider text-slate-500 flex items-center gap-1">
+                            <Sparkles className="h-3 w-3 text-amber-500" />
+                            Daftar NIK ({formatIndonesianDate(selectedDate)}):
+                          </span>
+                          <span>Klik kartu untuk sorot unit</span>
+                        </div>
+
+                        {submittedFtwForDay.length > 0 ? (
+                          <div className="flex flex-wrap gap-1.5 max-h-40 overflow-y-auto pr-1">
+                            {submittedFtwForDay.map(rec => {
+                              const recShift = getRecordShift(rec);
+                              const assigned = findOperatorAssignedUnit(rec.nik);
+                              const timeStr = rec.jam || (rec.submittedAt ? new Date(rec.submittedAt).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' }) : '');
+                              const isFit = rec.status === 'fit';
+
+                              return (
+                                <button
+                                  key={rec.id}
+                                  onClick={() => {
+                                    if (assigned?.settingId) {
+                                      setExpandedSettingId(assigned.settingId);
+                                      const el = document.getElementById(`setting-card-${assigned.settingId}`);
+                                      if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                                    } else {
+                                      setSettingSearchQuery(rec.nik);
+                                    }
+                                  }}
+                                  className={`group flex items-center gap-1.5 px-2 py-1 rounded border text-xs font-mono transition-all cursor-pointer text-left ${
+                                    isFit
+                                      ? 'bg-slate-50 hover:bg-emerald-50/70 border-slate-200 hover:border-emerald-300 text-slate-800'
+                                      : 'bg-rose-50 hover:bg-rose-100/70 border-rose-200 text-rose-800'
+                                  }`}
+                                  title={`Klik untuk melihat konfigurasi unit ${assigned ? assigned.unitCode : 'Operator ini'}`}
+                                >
+                                  <span className="text-[10px]">{isFit ? '🟢' : '🔴'}</span>
+                                  <span className="font-black text-slate-900 font-mono">[{rec.nik}]</span>
+                                  <span className="font-semibold text-slate-700 truncate max-w-[110px]">{rec.name}</span>
+                                  {timeStr && (
+                                    <span className="text-[9px] bg-slate-200 text-slate-600 px-1 py-0.2 rounded">
+                                      {timeStr}
+                                    </span>
+                                  )}
+                                  <span className={`text-[9px] font-bold px-1 py-0.2 rounded ${
+                                    recShift === 2 ? 'bg-indigo-100 text-indigo-700' : 'bg-amber-100 text-amber-800'
+                                  }`}>
+                                    {recShift === 2 ? 'S2' : 'S1'}
+                                  </span>
+                                  {assigned ? (
+                                    <span className="text-[9px] font-bold text-emerald-700 bg-emerald-50 px-1 py-0.2 rounded border border-emerald-200 flex items-center gap-0.5">
+                                      ➔ {assigned.unitCode}
+                                    </span>
+                                  ) : (
+                                    <span className="text-[9px] text-slate-400 italic">➔ Belum diset</span>
+                                  )}
+                                </button>
+                              );
+                            })}
+                          </div>
+                        ) : (
+                          <div className="py-3 text-center text-xs text-slate-400 font-mono">
+                            Belum ada pengisian FTW untuk kriteria shift ini.
+                          </div>
+                        )}
+                      </div>
+                    </motion.div>
                   )}
-                </div>
+                </AnimatePresence>
 
               </div>
 

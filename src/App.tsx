@@ -20,7 +20,7 @@ import { getOperatorFTW, isNikMatch } from './utils/ftwHelper';
 import { subscribeExternalFtw } from './services/externalFtwService';
 import { 
   LayoutGrid, Settings2, Columns, Monitor, RefreshCw, Layers, ShieldCheck, 
-  HelpCircle, CalendarRange, Cloud, LogOut, HeartPulse
+  HelpCircle, CalendarRange, Cloud, LogOut
 } from 'lucide-react';
 import { motion } from 'motion/react';
 import { onAuthStateChanged } from 'firebase/auth';
@@ -166,7 +166,11 @@ export default function App() {
     const unsubEmployees = onSnapshot(collection(db, 'employees'), (snapshot) => {
       const list: Employee[] = [];
       snapshot.forEach(doc => {
-        list.push(doc.data() as Employee);
+        // Exclude system documents and docs lacking valid employee info
+        if (doc.id.startsWith('_') || doc.id.includes('registry')) return;
+        const data = doc.data() as Partial<Employee>;
+        if (!data || !data.nrp || !data.name) return;
+        list.push({ id: doc.id, ...data } as Employee);
       });
       // Seed Firestore with local state if empty and we have local data
       if (snapshot.empty && latestEmployeesRef.current.length > 0) {
@@ -474,22 +478,6 @@ export default function App() {
     records.forEach(r => saveDocument('ftwSubmissions', r.id, r));
   };
 
-  // Live quick metrics for header launcher button
-  const { headerFitCount, headerUnfitCount, headerPendingCount } = useMemo(() => {
-    let fit = 0;
-    let unfit = 0;
-    let pending = 0;
-
-    employees.forEach(emp => {
-      const res = getOperatorFTW(emp.nrp, selectedDate, 1, ftwRecords);
-      if (res.status === 'fit') fit++;
-      else if (res.status === 'unfit') unfit++;
-      else pending++;
-    });
-
-    return { headerFitCount: fit, headerUnfitCount: unfit, headerPendingCount: pending };
-  }, [employees, selectedDate, ftwRecords]);
-
   // System hard reset function
   const handleSystemReset = () => {
     if (confirm('Apakah Anda yakin ingin menyetel ulang seluruh data ke setelan awal pabrik (demo seed data)? Semua data di cloud dan lokal akan diatur ulang.')) {
@@ -573,21 +561,6 @@ export default function App() {
                 </div>
               )}
             </div>
-
-            {/* FTW Online Synchronization Launcher Button */}
-            <button
-              onClick={() => setIsFTWModalOpen(true)}
-              className="flex items-center gap-2 bg-slate-900 hover:bg-slate-800 text-white text-xs py-1.5 px-3 rounded-lg font-bold shadow-xs transition cursor-pointer border border-slate-700"
-              title="Buka Sinkronisasi FTW Online (Fit to Work via NIK)"
-            >
-              <HeartPulse className="h-4 w-4 text-rose-500 animate-pulse" />
-              <span className="font-extrabold uppercase font-mono tracking-tight text-amber-400 hidden sm:inline">FTW Online:</span>
-              <span className="inline-flex items-center gap-1.5 text-[11px] font-mono">
-                <span className="text-emerald-400 bg-emerald-950/60 px-1.5 py-0.2 rounded font-black border border-emerald-500/30">🟢 {headerFitCount}</span>
-                <span className="text-rose-400 bg-rose-950/60 px-1.5 py-0.2 rounded font-black border border-rose-500/30">🔴 {headerUnfitCount}</span>
-                <span className="text-slate-300 bg-slate-800 px-1.5 py-0.2 rounded font-black border border-slate-700">⚪ {headerPendingCount}</span>
-              </span>
-            </button>
 
             {/* View Mode selection */}
             <div className="flex items-center bg-slate-100 rounded-lg p-1 border border-slate-200 text-xs font-bold font-sans">
