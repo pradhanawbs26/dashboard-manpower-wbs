@@ -1277,51 +1277,88 @@ export default function FieldMonitor({
 
                  {/* 2. Render Unconfigured Units in this category as NO OPERATOR */}
                  {category.unconfigured.map(unit => {
-                   return (
-                     <motion.div
-                       key={`unconfigured-${unit.id}`}
-                       layoutId={`unconfigured-card-${unit.id}`}
-                       className="select-none bg-white border border-rose-200 rounded-lg shadow-sm flex flex-col overflow-hidden transition-all duration-200 hover:border-rose-350 hover:shadow-md"
-                     >
-                       {/* Compact Unit Code Header of Unconfigured Tool */}
-                       <div className="py-1.5 px-2 text-center border-b font-extrabold font-mono tracking-wider text-xs bg-rose-600 border-rose-600 text-white font-black">
-                                               {unit.unitCode}
-                      </div>
+                    const isBroken = unit.status === "Breakdown" || unit.status === "Maintenance";
+                    const isMaint = unit.status === "Maintenance";
 
-                      {/* Full-width status banner */}
-                      <div className="py-1 px-1.5 text-center border-b font-black tracking-wider text-[10.5px] bg-rose-700 border-rose-800 text-white flex items-center justify-center gap-1 shadow-inner">
-                        <AlertTriangle className="w-3.5 h-3.5 stroke-[2.5] shrink-0" />
-                        <span>BELUM DISET</span>
-                      </div>
+                    return (
+                      <motion.div
+                        key={`unconfigured-${unit.id}`}
+                        layoutId={`unconfigured-card-${unit.id}`}
+                        className={`select-none bg-white border rounded-lg shadow-sm flex flex-col overflow-hidden transition-all duration-200 ${
+                          isBroken
+                            ? "border-rose-300 hover:border-rose-450 hover:shadow-md bg-rose-50/10"
+                            : "border-amber-300 hover:border-amber-450 hover:shadow-md"
+                        }`}
+                      >
+                        {/* Compact Unit Code Header of Unconfigured Tool */}
+                        <div className={`py-1.5 px-2 text-center border-b font-extrabold font-mono tracking-wider text-xs text-white font-black ${
+                          isBroken ? "bg-rose-700 border-rose-700" : "bg-rose-600 border-rose-600"
+                        }`}>
+                          {unit.unitCode}
+                        </div>
 
-                      {/* Compact NO OPERATOR information body */}
-                       <div className="flex-1 p-2 flex flex-col justify-center items-center text-center">
-                         <div className="py-1">
-                           <div className="inline-flex items-center gap-0.5 py-0.5 px-1.5 rounded-full text-[8px] font-bold uppercase bg-rose-50 text-rose-650 border border-rose-100 mb-1 font-mono">
-                             <AlertTriangle className="h-3 w-3 shrink-0" />
-                             BELUM DISET
-                           </div>
-                           <p className="text-[11px] font-black text-rose-600 tracking-tight uppercase truncate">
-                             NO OPERATOR
-                           </p>
-                           <p className="text-[8px] text-slate-400 font-mono mt-0.5">
-                             Roster Belum Di-set
-                           </p>
-                         </div>
-                       </div>
+                        {/* Full-width status banner */}
+                        {isBroken ? (
+                          <div className="py-1 px-1.5 text-center border-b font-black tracking-wider text-[10px] bg-rose-800 border-rose-900 text-white flex items-center justify-center gap-1 shadow-inner">
+                            <AlertTriangle className="w-3.5 h-3.5 stroke-[2.5] shrink-0" />
+                            <span>{isMaint ? "🛠️ MAINTENANCE" : "🚨 BREAKDOWN"}</span>
+                          </div>
+                        ) : (
+                          <div className="py-1 px-1.5 text-center border-b font-black tracking-wider text-[10.5px] bg-rose-700 border-rose-800 text-white flex items-center justify-center gap-1 shadow-inner">
+                            <AlertTriangle className="w-3.5 h-3.5 stroke-[2.5] shrink-0" />
+                            <span>BELUM DISET</span>
+                          </div>
+                        )}
 
-                       {/* Compact footer section */}
-                       <div className="px-2 py-1 border-t text-[9px] flex items-center justify-between bg-slate-50 border-slate-200 text-slate-400">
-                         <span className="truncate max-w-[80px] font-medium font-mono">
-                           {unit.brand}
-                         </span>
-                         <span className="shrink-0 font-extrabold text-[8px] px-1 py-0.5 rounded uppercase bg-rose-50 text-rose-700 border border-rose-200">
-                           KOSONG
-                         </span>
-                       </div>
-                     </motion.div>
-                   );
-                 })}
+                        {/* Compact status information body */}
+                        <div className="flex-1 p-2 flex flex-col justify-center items-center text-center">
+                          <div className="py-1">
+                            {isBroken ? (
+                              <>
+                                <div className="inline-flex items-center gap-0.5 py-0.5 px-1.5 rounded-full text-[8px] font-bold uppercase bg-rose-100 text-rose-700 border border-rose-200 mb-1 font-mono">
+                                  <AlertTriangle className="h-3 w-3 shrink-0" />
+                                  UNIT NON-AKTIF
+                                </div>
+                                <p className="text-[11px] font-black text-rose-700 tracking-tight uppercase truncate">
+                                  {isMaint ? "SEDANG SERVIS" : "UNIT PERBAIKAN"}
+                                </p>
+                                <p className="text-[8px] text-rose-500 font-mono mt-0.5 font-bold">
+                                  Alat Sedang Rusak
+                                </p>
+                              </>
+                            ) : (
+                              <>
+                                <div className="inline-flex items-center gap-0.5 py-0.5 px-1.5 rounded-full text-[8px] font-bold uppercase bg-rose-50 text-rose-600 border border-rose-100 mb-1 font-mono">
+                                  <AlertTriangle className="h-3 w-3 shrink-0" />
+                                  BELUM DISET
+                                </div>
+                                <p className="text-[11px] font-black text-rose-600 tracking-tight uppercase truncate">
+                                  NO OPERATOR
+                                </p>
+                                <p className="text-[8px] text-slate-400 font-mono mt-0.5">
+                                  Roster Belum Di-set
+                                </p>
+                              </>
+                            )}
+                          </div>
+                        </div>
+
+                        {/* Compact footer section */}
+                        <div className="px-2 py-1 border-t text-[9px] flex items-center justify-between bg-slate-50 border-slate-200 text-slate-400">
+                          <span className="truncate max-w-[80px] font-medium font-mono">
+                            {unit.brand}
+                          </span>
+                          <span className={`shrink-0 font-extrabold text-[8px] px-1 py-0.5 rounded uppercase border ${
+                            isBroken 
+                              ? "bg-rose-100 text-rose-700 border-rose-300" 
+                              : "bg-rose-50 text-rose-700 border-rose-200"
+                          }`}>
+                            {isBroken ? (isMaint ? "MAINTENANCE" : "BREAKDOWN") : "KOSONG"}
+                          </span>
+                        </div>
+                      </motion.div>
+                    );
+                  })}
 
                  {/* 3. Render Standby Master Operators for this category */}
                  {filteredStandbyMasters
