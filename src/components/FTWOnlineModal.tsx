@@ -56,7 +56,8 @@ export default function FTWOnlineModal({
 
   // External Firebase controls
   const [collectionName, setCollectionName] = useState(() => {
-    return localStorage.getItem('wbs_external_ftw_col') || initialCollection || 'ftw';
+    const saved = localStorage.getItem('wbs_external_ftw_col');
+    return (saved && saved !== 'ftw') ? saved : (initialCollection || 'assessments');
   });
   const [isSyncing, setIsSyncing] = useState(false);
   const [syncStatusText, setSyncStatusText] = useState<string | null>(null);

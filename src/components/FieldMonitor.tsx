@@ -7,7 +7,7 @@ import React, { useState, useMemo } from 'react';
 import { HeavyUnit, Employee, UnitSetting, UnitGroup, BackupTransfer, FTWRecord } from '../types';
 import { calculateShift, formatIndonesianDate, formatIndonesianDayName } from '../utils/scheduler';
 import { getOperatorFTW, getFTWStyleConfig } from '../utils/ftwHelper';
-import { Search, Calendar, ShieldAlert, CheckCircle2, Moon, Sun, AlertTriangle, ListFilter, Users, HeartPulse, X, Copy, Check, Filter } from 'lucide-react';
+import { Search, Calendar, ShieldAlert, CheckCircle2, Moon, Sun, AlertTriangle, ListFilter, Users, HeartPulse, X, Copy, Check, Filter, Clock } from 'lucide-react';
 import { motion } from 'motion/react';
 
 interface FieldMonitorProps {
@@ -1074,10 +1074,48 @@ export default function FieldMonitor({
                                    ? 'bg-amber-400 border-amber-400 text-slate-950 font-black' 
                                    : 'bg-indigo-600 border-indigo-600 text-white font-black'
                        }`}>
-                         {unit.unitCode}
-                       </div>
+                                                 {unit.unitCode}
+                      </div>
 
-                       {/* Compact Operator Details Body */}
+                      {/* Full-width FTW / Status Banner across the card dimension */}
+                      {isUnitBroken ? (
+                        <div className="py-1 px-1.5 text-center border-b font-black tracking-wider text-[10.5px] bg-rose-700 border-rose-800 text-white flex items-center justify-center gap-1 shadow-inner">
+                          <span>🚨 PERBAIKAN</span>
+                        </div>
+                      ) : isOff ? (
+                        <div className="py-1 px-1.5 text-center border-b font-black tracking-wider text-[10px] bg-slate-200 border-slate-300 text-slate-500 flex items-center justify-center gap-1 shadow-inner">
+                          <span>{isConfiguredEmpty ? 'TANPA OPERATOR' : (isMasterGroup ? 'SLOT STANDBY' : 'ROSTER OFF')}</span>
+                        </div>
+                      ) : activeOpFTW.status === 'fit' ? (
+                        <div 
+                          className="py-1 px-1.5 text-center border-b font-black tracking-wider text-xs bg-emerald-600 border-emerald-700 text-white flex items-center justify-center gap-1.5 shadow-inner"
+                          title={`Status FTW Online: Fit Bekerja [${activeOperator.nrp}]`}
+                        >
+                          <CheckCircle2 className="w-3.5 h-3.5 stroke-[2.5] shrink-0" />
+                          <span className="font-extrabold uppercase">FIT</span>
+                          {activeOpFTW.record?.jam && (
+                            <span className="text-[9px] font-mono font-bold opacity-90 ml-0.5">({activeOpFTW.record.jam})</span>
+                          )}
+                        </div>
+                      ) : activeOpFTW.status === 'unfit' ? (
+                        <div 
+                          className="py-1 px-1.5 text-center border-b font-black tracking-wider text-xs bg-rose-600 border-rose-700 text-white flex items-center justify-center gap-1.5 shadow-inner animate-pulse"
+                          title={`Status FTW Online: Unfit [${activeOperator.nrp}]`}
+                        >
+                          <AlertTriangle className="w-3.5 h-3.5 stroke-[2.5] shrink-0" />
+                          <span className="font-extrabold uppercase">UNFIT</span>
+                        </div>
+                      ) : (
+                        <div 
+                          className="py-1 px-1.5 text-center border-b font-black tracking-wider text-[10px] sm:text-[10.5px] bg-slate-500 border-slate-600 text-white flex items-center justify-center gap-1.5 shadow-inner"
+                          title={`Status FTW Online: Belum Mengisi FTW [${activeOperator.nrp}]`}
+                        >
+                          <Clock className="w-3.5 h-3.5 stroke-[2.5] shrink-0" />
+                          <span className="font-extrabold uppercase">BELUM ISI FTW</span>
+                        </div>
+                      )}
+
+                      {/* Compact Operator Details Body */}
                        <div className="flex-1 p-2 flex flex-col justify-center items-center text-center">
                          {isUnitBroken ? (
                            <div className="py-2">
@@ -1154,24 +1192,7 @@ export default function FieldMonitor({
                                <span className="truncate">{activeOperator.nrp}</span>
                              </p>
 
-                             {/* FTW Online Status Pill */}
-                             <div className="mt-1 flex items-center justify-center">
-                               <span 
-                                 className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[8px] font-black uppercase tracking-wider ${
-                                   activeOpFTW.status === 'fit'
-                                     ? 'bg-emerald-500 text-white shadow-xs'
-                                     : activeOpFTW.status === 'unfit'
-                                       ? 'bg-rose-600 text-white shadow-xs animate-pulse ring-1 ring-rose-300'
-                                       : 'bg-slate-200 text-slate-600 border border-slate-300'
-                                 }`}
-                                 title={`Status FTW Online: ${ftwStyle.description} [${activeOperator.nrp}]`}
-                               >
-                                 <span className={`w-1.5 h-1.5 rounded-full ${
-                                   activeOpFTW.status === 'fit' ? 'bg-white' : activeOpFTW.status === 'unfit' ? 'bg-white' : 'bg-slate-400'
-                                 }`} />
-                                 <span>{ftwStyle.label}</span>
-                               </span>
-                             </div>
+                             
 
                              {activeOpFTW.status === 'unfit' && (
                                <div className="mt-1 px-1.5 py-0.5 bg-rose-600 text-white rounded text-[7.5px] font-black uppercase tracking-tight flex items-center justify-center gap-1 shadow-xs animate-pulse">
@@ -1264,10 +1285,16 @@ export default function FieldMonitor({
                      >
                        {/* Compact Unit Code Header of Unconfigured Tool */}
                        <div className="py-1.5 px-2 text-center border-b font-extrabold font-mono tracking-wider text-xs bg-rose-600 border-rose-600 text-white font-black">
-                         {unit.unitCode}
-                       </div>
+                                               {unit.unitCode}
+                      </div>
 
-                       {/* Compact NO OPERATOR information body */}
+                      {/* Full-width status banner */}
+                      <div className="py-1 px-1.5 text-center border-b font-black tracking-wider text-[10.5px] bg-rose-700 border-rose-800 text-white flex items-center justify-center gap-1 shadow-inner">
+                        <AlertTriangle className="w-3.5 h-3.5 stroke-[2.5] shrink-0" />
+                        <span>BELUM DISET</span>
+                      </div>
+
+                      {/* Compact NO OPERATOR information body */}
                        <div className="flex-1 p-2 flex flex-col justify-center items-center text-center">
                          <div className="py-1">
                            <div className="inline-flex items-center gap-0.5 py-0.5 px-1.5 rounded-full text-[8px] font-bold uppercase bg-rose-50 text-rose-650 border border-rose-100 mb-1 font-mono">
@@ -1307,7 +1334,13 @@ export default function FieldMonitor({
                      return false;
                    })
                    .map(m => {
-                     return (
+                    const masterFtw = getOperatorFTW(m.activeOperator.nrp, selectedDate, selectedShift, ftwRecords, m.activeOperator.name);
+                    const masterFtwStyle = getFTWStyleConfig(masterFtw.status);
+                    const masterFtwTime = masterFtw.record?.submittedAt 
+                      ? new Date(masterFtw.record.submittedAt).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' }) 
+                      : (masterFtw.record?.jam || null);
+
+                    return (
                        <motion.div
                          key={`standby-${m.setting.id}`}
                          layoutId={`standby-card-${m.setting.id}`}
@@ -1317,7 +1350,37 @@ export default function FieldMonitor({
                          <div className="py-1.5 px-2 text-center border-b font-extrabold font-mono tracking-wider text-xs bg-amber-400 text-slate-950 font-black flex items-center justify-center gap-1">
                            <span className="w-1.5 h-1.5 rounded-full bg-slate-950 animate-ping shrink-0"></span>
                            {m.slotCode}
-                         </div>
+                        </div>
+
+                        {/* Full-width Master FTW Status Banner directly under slot code header */}
+                        {masterFtw.status === 'fit' ? (
+                          <div 
+                            className="py-1 px-1.5 text-center border-b font-black tracking-wider text-xs bg-emerald-600 border-emerald-700 text-white flex items-center justify-center gap-1.5 shadow-inner"
+                            title={`Status FTW Online: Fit Bekerja [${m.activeOperator.nrp}]`}
+                          >
+                            <CheckCircle2 className="w-3.5 h-3.5 stroke-[2.5] shrink-0" />
+                            <span className="font-extrabold uppercase">FIT</span>
+                            {masterFtwTime && (
+                              <span className="text-[9px] font-mono font-bold opacity-90 ml-0.5">({masterFtwTime})</span>
+                            )}
+                          </div>
+                        ) : masterFtw.status === 'unfit' ? (
+                          <div 
+                            className="py-1 px-1.5 text-center border-b font-black tracking-wider text-xs bg-rose-600 border-rose-700 text-white flex items-center justify-center gap-1.5 shadow-inner animate-pulse"
+                            title={`Status FTW Online: Unfit [${m.activeOperator.nrp}]`}
+                          >
+                            <AlertTriangle className="w-3.5 h-3.5 stroke-[2.5] shrink-0" />
+                            <span className="font-extrabold uppercase">UNFIT</span>
+                          </div>
+                        ) : (
+                          <div 
+                            className="py-1 px-1.5 text-center border-b font-black tracking-wider text-[10px] sm:text-[10.5px] bg-slate-500 border-slate-600 text-white flex items-center justify-center gap-1.5 shadow-inner"
+                            title={`Status FTW Online: Belum Mengisi FTW [${m.activeOperator.nrp}]`}
+                          >
+                            <Clock className="w-3.5 h-3.5 stroke-[2.5] shrink-0" />
+                            <span className="font-extrabold uppercase">BELUM ISI FTW</span>
+                          </div>
+                        )}
 
                          <div className="flex-1 p-2 flex flex-col justify-center items-center text-center">
                            <div className="w-full py-1">
@@ -1332,30 +1395,7 @@ export default function FieldMonitor({
                                <span className="truncate">{m.activeOperator.nrp}</span>
                              </p>
 
-                             {(() => {
-                               const masterFtw = getOperatorFTW(m.activeOperator.nrp, selectedDate, selectedShift, ftwRecords, m.activeOperator.name);
-                               const masterFtwStyle = getFTWStyleConfig(masterFtw.status);
-                               const masterFtwTime = masterFtw.record?.submittedAt 
-                                 ? new Date(masterFtw.record.submittedAt).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' }) 
-                                 : (masterFtw.record?.jam || null);
-
-                               return (
-                                 <div 
-                                   className={`mt-1.5 px-2 py-0.5 rounded text-[9.5px] font-black uppercase text-center flex items-center justify-center gap-1 shrink-0 border transition-all ${masterFtwStyle.badgeBg}`}
-                                   title={`Status FTW: ${masterFtwStyle.description}${masterFtwTime ? ` (${masterFtwTime} WIB)` : ''}`}
-                                 >
-                                   <span className={`w-1.5 h-1.5 rounded-full ${
-                                     masterFtw.status === 'fit' ? 'bg-white' : masterFtw.status === 'unfit' ? 'bg-white animate-pulse' : 'bg-slate-300'
-                                   }`} />
-                                   <span>{masterFtwStyle.label}</span>
-                                   {masterFtwTime && (
-                                     <span className="text-[8px] font-mono opacity-90 ml-0.5">
-                                       ({masterFtwTime})
-                                     </span>
-                                   )}
-                                 </div>
-                               );
-                             })()}
+                             
 
                              <div className="mt-1 truncate">
                                <span className="inline-flex text-[8px] px-1 bg-amber-50 text-amber-800 rounded border border-amber-100 font-extrabold uppercase truncate">

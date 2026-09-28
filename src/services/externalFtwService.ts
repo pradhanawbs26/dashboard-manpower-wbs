@@ -14,6 +14,7 @@ import {
   getDocs, 
   query, 
   limit, 
+  orderBy,
   setDoc, 
   doc, 
   Firestore,
@@ -33,9 +34,10 @@ export const EXTERNAL_FTW_CONFIG = {
 };
 
 const EXTERNAL_APP_NAME = 'ftw-wbs-external';
-const DEFAULT_COLLECTION = 'ftw';
+const DEFAULT_COLLECTION = 'assessments';
 
 export const COMMON_FTW_COLLECTIONS = [
+  'assessments',
   'ftw',
   'ftwSubmissions',
   'pemeriksaan',
@@ -224,6 +226,7 @@ export function parseExternalFtwDoc(docId: string, data: any, sourceCollection: 
 
   // Raw date string
   const rawDate = 
+    data.tanggalPengisian ||
     data.date || 
     data.tanggal || 
     data.tgl || 
@@ -273,7 +276,7 @@ export function parseExternalFtwDoc(docId: string, data: any, sourceCollection: 
   }
 
   // Extract raw time
-  const rawTime = data.jam || data.waktu_jam || data.time || data.jam_pemeriksaan;
+  const rawTime = data.jamPengisian || data.jam || data.waktu_jam || data.time || data.jam_pemeriksaan;
   if (rawTime && typeof rawTime === 'string') {
     timeStr = rawTime;
   } else if (dateObj) {
@@ -291,6 +294,8 @@ export function parseExternalFtwDoc(docId: string, data: any, sourceCollection: 
   let status: 'fit' | 'unfit' = 'fit';
 
   const rawStatus = String(
+    data.finalDecision ||
+    data.decision ||
     data.status || 
     data.hasil || 
     data.kondisi || 
@@ -330,7 +335,8 @@ export function parseExternalFtwDoc(docId: string, data: any, sourceCollection: 
 
   // Check vitals if present
   const temp = parseFloat(data.suhu || data.temperature || data.suhu_tubuh || 0);
-  const sleep = parseFloat(data.jam_tidur || data.sleepHours || data.tidur || 0);
+  const sleep = parseFloat(data.totalSleep12 || data.jam_tidur || data.sleepHours || data.tidur || 0);
+  const sleep36 = parseFloat(data.totalSleep36 || data.sleepHours36 || 0);
   if (temp >= 37.8) {
     status = 'unfit';
   }
@@ -346,11 +352,14 @@ export function parseExternalFtwDoc(docId: string, data: any, sourceCollection: 
     date: dateStr,
     shift,
     status,
-    submittedAt: dateObj ? dateObj.toISOString() : new Date().toISOString(),
+    submittedAt: dateObj ? dateObj.toISOString() : (data.updatedAt || new Date().toISOString()),
     jam: timeStr || undefined,
     temperature: temp || 36.5,
     bloodPressure: String(data.tensi || data.bloodPressure || data.tekanan_darah || '120/80'),
     sleepHours: sleep || 7.5,
+    sleepHours36: sleep36 || 14,
+    department: data.dept || data.department || data.jabatan || '',
+    riskAspects: data.consumesObat ? 'Mengkonsumsi obat' : 'No risk drugs',
     notes: data.catatan || data.notes || data.keluhan || (status === 'fit' ? 'Fit Bekerja' : 'Unfit / Kurang Sehat'),
     sourceProject: `Firebase ftw-wbs [${sourceCollection}]`
   };
@@ -370,8 +379,16 @@ export async function fetchExternalFtw(collectionName: string = DEFAULT_COLLECTI
   try {
     const db = getExternalFtwDb();
     const colRef = collection(db, collectionName);
-    const q = query(colRef, limit(200));
-    const snapshot = await getDocs(q);
+    
+    // Order by updatedAt desc to get the most recent submissions first
+    let snapshot;
+    try {
+      const q = query(colRef, orderBy('updatedAt', 'desc'), limit(350));
+      snapshot = await getDocs(q);
+    } catch {
+      const qFallback = query(colRef, limit(350));
+      snapshot = await getDocs(qFallback);
+    }
 
     const records: FTWRecord[] = [];
     snapshot.forEach(docSnap => {
@@ -411,7 +428,13 @@ export function subscribeExternalFtw(
   try {
     const db = getExternalFtwDb();
     const colRef = collection(db, collectionName);
-    const q = query(colRef, limit(250));
+    
+    let q;
+    try {
+      q = query(colRef, orderBy('updatedAt', 'desc'), limit(350));
+    } catch {
+      q = query(colRef, limit(350));
+    }
 
     return onSnapshot(
       q,

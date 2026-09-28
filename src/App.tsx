@@ -84,7 +84,8 @@ export default function App() {
   });
   const [isFTWModalOpen, setIsFTWModalOpen] = useState(false);
   const [externalFtwCollection, setExternalFtwCollection] = useState<string>(() => {
-    return localStorage.getItem('wbs_external_ftw_col') || 'ftw';
+    const saved = localStorage.getItem('wbs_external_ftw_col');
+    return (saved && saved !== 'ftw') ? saved : 'assessments';
   });
 
   // Selected date defaults to current date in Waktu Indonesia Barat (WIB - UTC+7)
@@ -524,9 +525,9 @@ export default function App() {
           {/* Logo Brand Brand */}
           <div className="flex items-center gap-3">
             <img 
-              src="https://res.cloudinary.com/dgjnlxf69/image/upload/v1780966725/Logo_Manpower_mciyqs.png" 
-              alt="Logo Manpower" 
-              className="h-10 object-contain"
+              src="https://res.cloudinary.com/dgjnlxf69/image/upload/v1790582652/Logo_Manpower_Control_vege12.png" 
+              alt="Logo Manpower Control" 
+              className="h-10 md:h-11 object-contain drop-shadow-xs"
               id="app-logo-manpower"
               referrerPolicy="no-referrer"
             />
