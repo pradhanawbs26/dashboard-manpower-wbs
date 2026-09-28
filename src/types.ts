@@ -54,3 +54,25 @@ export interface ShiftInfo {
   operator1Role: 'S' | 'M' | 'OFF'; // S = Siang (Shift 1), M = Malam (Shift 2)
   operator2Role: 'S' | 'M' | 'OFF';
 }
+
+export type FTWStatus = 'fit' | 'unfit' | 'pending';
+
+export interface FTWRecord {
+  id: string;
+  nik: string;             // NIK or NRP of operator, used for exact cross-project matching
+  name?: string;           // Operator name from FTW submission
+  date: string;            // YYYY-MM-DD
+  shift?: 1 | 2;           // 1 = Siang, 2 = Malam (optional; if omitted applies to entire day)
+  status: 'fit' | 'unfit'; // Fit = ready to work, Unfit = medical/fatigue disqualification
+  submittedAt: string;     // ISO timestamp when filled online
+  jam?: string;            // Time of submission, e.g. "16:30" or "06:15"
+  temperature?: number;    // Body temperature (°C), e.g. 36.4
+  bloodPressure?: string;  // e.g. "120/80"
+  sleepHours?: number;     // e.g. 7.5
+  sleepHours36?: number;   // e.g. 15.3 (total sleep in 36 hours)
+  department?: string;     // e.g. "FD DRIVER • CY & PORT OPERATION"
+  riskAspects?: string;    // e.g. "No risk drugs"
+  recommendation?: string; // e.g. "FIT TO WORK"
+  notes?: string;          // e.g. "Fit Siap Kerja", "Pusing/Demam", "Tekanan Darah Tinggi"
+  sourceProject?: string;  // e.g. "FTW Online Mining", "Google Form K3", "External Webhook"
+}

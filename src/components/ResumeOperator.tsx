@@ -1,9 +1,10 @@
 import React, { useMemo, useState } from 'react';
-import { HeavyUnit, Employee, UnitSetting, BackupTransfer } from '../types';
+import { HeavyUnit, Employee, UnitSetting, BackupTransfer, FTWRecord } from '../types';
 import { calculateShift, formatIndonesianDate, formatIndonesianDayName } from '../utils/scheduler';
+import { getOperatorFTW, getFTWStyleConfig } from '../utils/ftwHelper';
 import { 
   CheckCircle2, AlertTriangle, Users, Calendar, Moon, Sun, 
-  Armchair, Settings2, ShieldCheck, HelpCircle, UserX, ToggleRight, Layers
+  Armchair, Settings2, ShieldCheck, HelpCircle, UserX, ToggleRight, Layers, HeartPulse
 } from 'lucide-react';
 
 interface ResumeOperatorProps {
@@ -13,6 +14,8 @@ interface ResumeOperatorProps {
   backupTransfers: BackupTransfer[];
   selectedDate: string;
   setSelectedDate: (date: string) => void;
+  ftwRecords?: FTWRecord[];
+  onOpenFTWModal?: () => void;
 }
 
 export default function ResumeOperator({
@@ -21,7 +24,9 @@ export default function ResumeOperator({
   settings,
   backupTransfers,
   selectedDate,
-  setSelectedDate
+  setSelectedDate,
+  ftwRecords = [],
+  onOpenFTWModal
 }: ResumeOperatorProps) {
   const [selectedShift, setSelectedShift] = useState<1 | 2>(() => {
     const now = new Date();
@@ -69,7 +74,10 @@ export default function ResumeOperator({
     unitsWithOperator,
     unitsNoOperator,
     readyCount,
-    breakdownCount
+    breakdownCount,
+    ftwFitCount,
+    ftwUnfitCount,
+    ftwPendingCount
   } = useMemo(() => {
     const activeTransfersForThisShift = (backupTransfers || []).filter(
       bt => bt.date === selectedDate && Number(bt.shift) === Number(selectedShift)
@@ -436,6 +444,20 @@ export default function ResumeOperator({
     const readyStats = units.filter(u => u.status === 'Ready').length;
     const breakdownStats = units.filter(u => u.status === 'Breakdown' || u.status === 'Maintenance').length;
 
+    // FTW Online Status Counts for Active Operators
+    let ftwFitCount = 0;
+    let ftwUnfitCount = 0;
+    let ftwPendingCount = 0;
+
+    mappedUtamaSettings.forEach(item => {
+      if (item.activeOperator) {
+        const ftw = getOperatorFTW(item.activeOperator.nrp, selectedDate, selectedShift, ftwRecords, item.activeOperator.name);
+        if (ftw.status === 'fit') ftwFitCount++;
+        else if (ftw.status === 'unfit') ftwUnfitCount++;
+        else ftwPendingCount++;
+      }
+    });
+
     return {
       resolvedSettings: mappedUtamaSettings,
       totalOnDutyOperators: scheduledOnDutyEmployeeIds.size,
@@ -443,9 +465,12 @@ export default function ResumeOperator({
       unitsWithOperator: activeOperatorsAssignedCount,
       unitsNoOperator: unitsReadyNoOperatorList.length,
       readyCount: readyStats,
-      breakdownCount: breakdownStats
+      breakdownCount: breakdownStats,
+      ftwFitCount,
+      ftwUnfitCount,
+      ftwPendingCount
     };
-  }, [settings, selectedDate, selectedShift, employees, units, backupTransfers]);
+  }, [settings, selectedDate, selectedShift, employees, units, backupTransfers, ftwRecords]);
 
   return (
     <div className="flex flex-col h-full bg-slate-50 text-slate-700">
@@ -597,6 +622,57 @@ export default function ResumeOperator({
 
         </div>
 
+        {/* FTW Online Summary Strip */}
+        <div className="bg-slate-900 text-white p-4 rounded-xl border border-slate-800 shadow-sm flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
+          <div className="flex items-center gap-3">
+            <div className="p-2.5 bg-amber-500 rounded-lg text-slate-950 font-black shrink-0">
+              <HeartPulse className="h-5 w-5" />
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <h3 className="text-xs font-black uppercase tracking-wider font-mono">STATUS KELAYAKAN OPERATOR (FTW ONLINE)</h3>
+                <span className="text-[9px] bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 px-2 py-0.5 rounded font-mono font-bold">Sinkronisasi NIK</span>
+              </div>
+              <p className="text-xs text-slate-300 mt-0.5">
+                Monitoring kebugaran operator yang bertugas pada shift aktif per tanggal <strong>{formatIndonesianDate(selectedDate)}</strong>
+              </p>
+            </div>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-3 w-full md:w-auto">
+            {/* Fit count */}
+            <div className="flex items-center gap-2 bg-emerald-950/60 border border-emerald-600/40 px-3 py-1.5 rounded-lg">
+              <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse"></span>
+              <span className="text-xs font-black text-emerald-300 font-mono">FIT (Hijau):</span>
+              <span className="text-base font-black text-white font-mono">{ftwFitCount}</span>
+            </div>
+
+            {/* Unfit count */}
+            <div className="flex items-center gap-2 bg-rose-950/60 border border-rose-600/40 px-3 py-1.5 rounded-lg">
+              <span className="w-2.5 h-2.5 rounded-full bg-rose-400 animate-pulse"></span>
+              <span className="text-xs font-black text-rose-300 font-mono">UNFIT (Merah):</span>
+              <span className="text-base font-black text-white font-mono">{ftwUnfitCount}</span>
+            </div>
+
+            {/* Pending count */}
+            <div className="flex items-center gap-2 bg-slate-800 border border-slate-700 px-3 py-1.5 rounded-lg">
+              <span className="w-2.5 h-2.5 rounded-full bg-slate-400"></span>
+              <span className="text-xs font-black text-slate-300 font-mono">BELUM ISI (Abu):</span>
+              <span className="text-base font-black text-white font-mono">{ftwPendingCount}</span>
+            </div>
+
+            {onOpenFTWModal && (
+              <button
+                onClick={onOpenFTWModal}
+                className="px-3 py-1.5 bg-amber-500 hover:bg-amber-400 text-slate-950 font-black rounded-lg text-xs transition cursor-pointer flex items-center gap-1.5 font-mono shadow-xs ml-auto md:ml-0"
+              >
+                <HeartPulse className="h-3.5 w-3.5" />
+                <span>Buka Panel FTW</span>
+              </button>
+            )}
+          </div>
+        </div>
+
         {/* Detailed Panels: Operator Standby & Unit Tanpa Operator */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
 
@@ -659,36 +735,44 @@ export default function ResumeOperator({
               </span>
             </div>
             <div className="flex-1 p-4 overflow-y-auto space-y-2.5">
-              {standbyMasters.map(employee => (
-                <div 
-                  key={employee.id}
-                  className="p-3 rounded-lg border border-slate-200 hover:border-slate-350 bg-amber-50/10 flex justify-between items-center transition-all"
-                >
-                  <div>
-                    <div className="flex items-center gap-2">
-                      <h4 className="font-extrabold text-sm text-slate-805">{employee.name}</h4>
-                      <span className="text-[9px] font-black px-1.5 py-0.2 rounded bg-amber-100 text-amber-800 uppercase">
-                        Master
-                      </span>
+              {standbyMasters.map(employee => {
+                const masterFtw = getOperatorFTW(employee.nrp, selectedDate, selectedShift, ftwRecords, employee.name);
+                const masterFtwStyle = getFTWStyleConfig(masterFtw.status);
+
+                return (
+                  <div 
+                    key={employee.id}
+                    className="p-3 rounded-lg border border-slate-200 hover:border-slate-350 bg-amber-50/10 flex justify-between items-center transition-all"
+                  >
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <h4 className="font-extrabold text-sm text-slate-805">{employee.name}</h4>
+                        <span className="text-[9px] font-black px-1.5 py-0.2 rounded bg-amber-100 text-amber-800 uppercase">
+                          Master
+                        </span>
+                        <span className={`text-[8.5px] font-black px-1.5 py-0.5 rounded uppercase font-mono ${masterFtwStyle.badgeBg}`}>
+                          {masterFtwStyle.label}
+                        </span>
+                      </div>
+                      <p className="text-[10px] text-slate-500 font-mono mt-1">NRP {employee.nrp}</p>
                     </div>
-                    <p className="text-[10px] text-slate-500 font-mono mt-1">NRP {employee.nrp}</p>
+                    <div className="flex flex-wrap gap-1 max-w-[50%] justify-end">
+                      {employee.specializations?.map(spec => (
+                        <span 
+                          key={spec} 
+                          className="text-[9px] font-extrabold bg-slate-100 text-slate-600 px-2 py-0.5 rounded border border-slate-200 uppercase"
+                        >
+                          {spec}
+                        </span>
+                      )) || (
+                        <span className="text-[9px] font-extrabold bg-slate-100 text-slate-600 px-2 py-0.5 rounded border border-slate-200">
+                          Dump Truck
+                        </span>
+                      )}
+                    </div>
                   </div>
-                  <div className="flex flex-wrap gap-1 max-w-[50%] justify-end">
-                    {employee.specializations?.map(spec => (
-                      <span 
-                        key={spec} 
-                        className="text-[9px] font-extrabold bg-slate-100 text-slate-600 px-2 py-0.5 rounded border border-slate-200 uppercase"
-                      >
-                        {spec}
-                      </span>
-                    )) || (
-                      <span className="text-[9px] font-extrabold bg-slate-100 text-slate-600 px-2 py-0.5 rounded border border-slate-200">
-                        Dump Truck
-                      </span>
-                    )}
-                  </div>
-                </div>
-              ))}
+                );
+              })}
 
               {standbyMasters.length === 0 && (
                 <div className="flex flex-col items-center justify-center h-full text-slate-405 text-center p-8">
@@ -700,6 +784,136 @@ export default function ResumeOperator({
             </div>
           </div>
 
+        </div>
+
+        {/* 3. Detailed Table of All Units & Assigned Operators with FTW Online Status */}
+        <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+          <div className="p-4 bg-slate-50 border-b border-slate-200 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div>
+              <h3 className="font-black text-sm uppercase tracking-wider text-slate-800 flex items-center gap-2">
+                <ShieldCheck className="h-4 w-4 text-emerald-600" />
+                Daftar Detail Armada &amp; Status Kebugaran FTW Operator
+              </h3>
+              <p className="text-xs text-slate-500 mt-0.5">
+                Pengecekan kesiapan alat dan kelaikan fisik operator (Fit to Work)
+              </p>
+            </div>
+            <div className="flex items-center gap-2 text-xs font-mono">
+              <span className="px-2 py-0.5 rounded bg-emerald-100 text-emerald-800 font-bold border border-emerald-300">🟢 Fit ({ftwFitCount})</span>
+              <span className="px-2 py-0.5 rounded bg-rose-100 text-rose-800 font-bold border border-rose-300">🔴 Unfit ({ftwUnfitCount})</span>
+              <span className="px-2 py-0.5 rounded bg-slate-200 text-slate-700 font-bold border border-slate-300">⚪ Belum Isi ({ftwPendingCount})</span>
+            </div>
+          </div>
+
+          <div className="overflow-x-auto">
+            <table className="w-full text-left border-collapse text-xs">
+              <thead>
+                <tr className="bg-slate-100 text-slate-600 font-mono font-bold uppercase text-[10px] border-b border-slate-200">
+                  <th className="p-3">Kode Unit</th>
+                  <th className="p-3">Model / Tipe</th>
+                  <th className="p-3">Kondisi Unit</th>
+                  <th className="p-3">Operator Bertugas</th>
+                  <th className="p-3">NIK / NRP</th>
+                  <th className="p-3">Jenis Alokasi</th>
+                  <th className="p-3 text-center">Status FTW Online</th>
+                  <th className="p-3">Catatan / Tindakan</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100">
+                {resolvedSettings.map((item, idx) => {
+                  const op = item.activeOperator;
+                  const ftw = op ? getOperatorFTW(op.nrp, selectedDate, selectedShift, ftwRecords) : { status: 'pending' as const };
+                  const ftwStyle = getFTWStyleConfig(ftw.status);
+
+                  return (
+                    <tr 
+                      key={item.setting.id || idx}
+                      className={`hover:bg-slate-50/80 transition-colors ${
+                        ftw.status === 'unfit' ? 'bg-rose-50/40' : ''
+                      }`}
+                    >
+                      <td className="p-3 font-mono font-black text-slate-800">
+                        {item.unit?.unitCode || '-'}
+                      </td>
+                      <td className="p-3 text-slate-600 font-medium">
+                        {item.unit?.brand} • {item.unit?.type}
+                      </td>
+                      <td className="p-3">
+                        <span className={`inline-flex items-center px-2 py-0.5 rounded text-[9.5px] font-black uppercase font-mono ${
+                          item.unit?.status === 'Ready' 
+                            ? 'bg-emerald-100 text-emerald-800' 
+                            : 'bg-rose-100 text-rose-800'
+                        }`}>
+                          {item.unit?.status || 'Unknown'}
+                        </span>
+                      </td>
+                      <td className="p-3 font-extrabold text-slate-900">
+                        {op ? op.name : (
+                          <span className="text-rose-600 italic font-normal">Tanpa Operator</span>
+                        )}
+                      </td>
+                      <td className="p-3 font-mono text-slate-500 font-bold">
+                        {op ? op.nrp : '-'}
+                      </td>
+                      <td className="p-3">
+                        {item.isFilledByBreakdownRelocation ? (
+                          <span className="text-[9.5px] font-black uppercase bg-amber-100 text-amber-900 px-2 py-0.5 rounded border border-amber-300">
+                            Pindahan ({item.breakdownOperatorFromUnitCode})
+                          </span>
+                        ) : item.isFilledByBackupTransfer ? (
+                          <span className="text-[9.5px] font-black uppercase bg-indigo-100 text-indigo-900 px-2 py-0.5 rounded border border-indigo-300">
+                            Transfer Backup
+                          </span>
+                        ) : item.isFilledByMaster ? (
+                          <span className="text-[9.5px] font-black uppercase bg-purple-100 text-purple-900 px-2 py-0.5 rounded border border-purple-300">
+                            Relay Master ({item.backupFromSlot})
+                          </span>
+                        ) : op ? (
+                          <span className="text-[9.5px] font-bold uppercase text-slate-600">
+                            Reguler
+                          </span>
+                        ) : (
+                          <span className="text-[9.5px] text-slate-400 font-medium">-</span>
+                        )}
+                      </td>
+                      <td className="p-3 text-center">
+                        {op ? (
+                          <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded text-[10px] font-black uppercase tracking-wider font-mono ${ftwStyle.badgeBg}`}>
+                            <span className={`w-1.5 h-1.5 rounded-full ${
+                              ftw.status === 'fit' ? 'bg-white' : ftw.status === 'unfit' ? 'bg-white animate-ping' : 'bg-slate-300'
+                            }`} />
+                            {ftwStyle.label}
+                          </span>
+                        ) : (
+                          <span className="text-slate-400 text-[10px]">-</span>
+                        )}
+                      </td>
+                      <td className="p-3">
+                        {ftw.status === 'unfit' ? (
+                          <span className="inline-flex items-center gap-1 text-[10px] font-black text-rose-700 uppercase bg-rose-150 px-2 py-0.5 rounded">
+                            <AlertTriangle className="h-3 w-3 text-rose-600" />
+                            UNFIT! Tukar dengan Master Standby
+                          </span>
+                        ) : ftw.status === 'fit' ? (
+                          <span className="text-[10px] text-emerald-700 font-bold">
+                            ✓ Siap Operasi Penuh
+                          </span>
+                        ) : op ? (
+                          <span className="text-[10px] text-slate-400 italic">
+                            Belum submit FTW Online
+                          </span>
+                        ) : (
+                          <span className="text-[10px] text-rose-500 font-bold">
+                            Butuh pengisian manpower
+                          </span>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
         </div>
 
       </div>

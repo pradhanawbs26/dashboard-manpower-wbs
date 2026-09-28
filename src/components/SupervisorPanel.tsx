@@ -4,11 +4,25 @@
  */
 
 import React, { useState, useMemo } from 'react';
-import { HeavyUnit, Employee, UnitSetting, UnitGroup, BackupTransfer } from '../types';
+import { HeavyUnit, Employee, UnitSetting, UnitGroup, BackupTransfer, FTWRecord } from '../types';
 import { calculateShift, generateDateRange, formatIndonesianDayName, formatIndonesianDate } from '../utils/scheduler';
 import { 
+  getOperatorFTW, 
+  getFTWStyleConfig, 
+  getRecordWibDate, 
+  getRecordShift, 
+  getSubmittedFtwForDateAndShift,
+  isNikMatch 
+} from '../utils/ftwHelper';
+import { 
+  fetchExternalFtw, 
+  writeTestExternalFtwSubmission, 
+  getWIBTimeString 
+} from '../services/externalFtwService';
+import { 
   Building2, Truck, Users, Settings, Plus, Pencil, Trash2, Check, X, 
-  HelpCircle, AlertCircle, Info, Calendar, CalendarDays, Eye, RefreshCw, Search, Sun, Moon
+  HelpCircle, AlertCircle, Info, Calendar, CalendarDays, Eye, RefreshCw, Search, Sun, Moon,
+  HeartPulse, Sparkles, Filter, ChevronRight, Clock, ShieldCheck, Zap
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
@@ -40,8 +54,14 @@ interface SupervisorPanelProps {
   backupTransfers: BackupTransfer[];
   setBackupTransfers: React.Dispatch<React.SetStateAction<BackupTransfer[]>>;
   selectedDate: string; // From parent for calendar preview sync
+  setSelectedDate?: (date: string) => void;
   activeSettingIdForPanel?: string | null;
   setActiveSettingIdForPanel?: React.Dispatch<React.SetStateAction<string | null>>;
+  ftwRecords?: FTWRecord[];
+  onOpenFTWModal?: () => void;
+  onBulkSyncFtw?: (records: FTWRecord[]) => void;
+  onSaveFtwRecord?: (record: FTWRecord) => void;
+  externalCollectionName?: string;
 }
 
 export default function SupervisorPanel({
@@ -55,8 +75,14 @@ export default function SupervisorPanel({
   backupTransfers,
   setBackupTransfers,
   selectedDate,
+  setSelectedDate,
   activeSettingIdForPanel,
-  setActiveSettingIdForPanel
+  setActiveSettingIdForPanel,
+  ftwRecords = [],
+  onOpenFTWModal,
+  onBulkSyncFtw,
+  onSaveFtwRecord,
+  externalCollectionName = 'ftw'
 }: SupervisorPanelProps) {
   // Main Navigation Menu Tabs (Jendela 2)
   const [activeMenu, setActiveMenu] = useState<'unit_db' | 'employee_db' | 'unit_settings' | 'backup_settings'>('unit_settings');
@@ -138,12 +164,130 @@ export default function SupervisorPanel({
     }
   }, [selectedDate]);
 
+  // FTW Direct Sync and Shift Filter in Settingan Operator
+  const [ftwShiftFilter, setFtwShiftFilter] = useState<'all' | '1' | '2' | 'ftw_submitted' | 'ftw_unfit'>('all');
+  const [isPullingFtw, setIsPullingFtw] = useState(false);
+  const [pullFtwNotice, setPullFtwNotice] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
+
+  // Quick Simulation Modal for Shift 2 (16.00 - 18.00)
+  const [isSimModalOpen, setIsSimModalOpen] = useState(false);
+  const [simEmployeeNrp, setSimEmployeeNrp] = useState('');
+  const [simHour, setSimHour] = useState<number>(16);
+  const [simMinute, setSimMinute] = useState<string>('30');
+  const [simStatus, setSimStatus] = useState<'fit' | 'unfit'>('fit');
+  const [simNotes, setSimNotes] = useState('');
+  const [simIsLoading, setSimIsLoading] = useState(false);
+
   // 8-Day rolling calendar starting point for setting previews (mimics Image 2)
   const [previewStartDate, setPreviewStartDate] = useState('2026-06-01');
 
   // Helper map lookups for fast calculations
   const unitMap = useMemo(() => new Map(units.map(u => [u.id, u])), [units]);
   const employeeMap = useMemo(() => new Map(employees.map(e => [e.id, e])), [employees]);
+
+  // Pull data from external Firebase ftw-wbs directly
+  const handleDirectPullExternalFtw = async () => {
+    setIsPullingFtw(true);
+    setPullFtwNotice(null);
+    try {
+      const res = await fetchExternalFtw(externalCollectionName);
+      if (res.success) {
+        if (onBulkSyncFtw && res.records.length > 0) {
+          const incomingIds = new Set(res.records.map(r => r.id));
+          const filteredOld = ftwRecords.filter(r => !incomingIds.has(r.id));
+          onBulkSyncFtw([...res.records, ...filteredOld]);
+        }
+        setPullFtwNotice({
+          type: 'success',
+          message: `Berhasil menarik ${res.records.length} data FTW dari Firebase ftw-wbs! (${res.totalRawDocs} dokumen terbaca). NIK langsung dipetakan ke settingan operator.`
+        });
+      } else {
+        setPullFtwNotice({
+          type: 'error',
+          message: `Gagal menarik data FTW: ${res.error}`
+        });
+      }
+    } catch (err: any) {
+      setPullFtwNotice({
+        type: 'error',
+        message: `Terjadi kendala koneksi: ${err?.message || String(err)}`
+      });
+    } finally {
+      setIsPullingFtw(false);
+    }
+  };
+
+  // Submit test simulation FTW for Shift 2 (16.00-18.00)
+  const handleQuickSubmitShift2 = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!simEmployeeNrp.trim()) return;
+
+    setSimIsLoading(true);
+    setPullFtwNotice(null);
+
+    const emp = employees.find(em => isNikMatch(em.nrp, simEmployeeNrp));
+    const targetNik = simEmployeeNrp.trim().toUpperCase();
+    const targetName = emp?.name || `Operator (${targetNik})`;
+    const derivedShift: 1 | 2 = (simHour >= 15 || simHour < 4) ? 2 : 1;
+
+    try {
+      // 1. Submit to external Firebase ftw-wbs
+      const sendRes = await writeTestExternalFtwSubmission(externalCollectionName, {
+        nik: targetNik,
+        name: targetName,
+        date: selectedDate,
+        shift: derivedShift,
+        status: simStatus,
+        hour: simHour,
+        notes: simNotes || `FTW Jam ${String(simHour).padStart(2, '0')}:${simMinute} (${simStatus === 'fit' ? 'Fit Siap Kerja' : 'Unfit'})`
+      });
+
+      // 2. Submit to app state
+      const now = new Date();
+      now.setHours(simHour, parseInt(simMinute, 10) || 0, 0, 0);
+
+      const record: FTWRecord = {
+        id: sendRes.id || `sim_${targetNik}_${Date.now()}`,
+        nik: targetNik,
+        name: targetName,
+        date: selectedDate,
+        shift: derivedShift,
+        status: simStatus,
+        submittedAt: now.toISOString(),
+        temperature: simStatus === 'fit' ? 36.5 : 38.2,
+        bloodPressure: simStatus === 'fit' ? '120/80' : '150/95',
+        sleepHours: simStatus === 'fit' ? 7.5 : 4.0,
+        notes: simNotes || `FTW Jam ${String(simHour).padStart(2, '0')}:${simMinute} (${simStatus === 'fit' ? 'Fit Siap Kerja' : 'Unfit'})`,
+        sourceProject: `Firebase ftw-wbs [${externalCollectionName}]`
+      };
+
+      if (onSaveFtwRecord) {
+        onSaveFtwRecord(record);
+      }
+
+      setPullFtwNotice({
+        type: 'success',
+        message: `NIK ${targetNik} (${targetName}) berhasil mengisi FTW pada jam ${String(simHour).padStart(2, '0')}:${simMinute} WIB (Shift 2). Data langsung aktif pada slot Shift 2!`
+      });
+
+      // Find unit assignment for this operator to auto-expand
+      for (const s of settings) {
+        if (s.operator1Id === emp?.id || s.operator2Id === emp?.id) {
+          setExpandedSettingId(s.id);
+          break;
+        }
+      }
+
+      setIsSimModalOpen(false);
+    } catch (err: any) {
+      setPullFtwNotice({
+        type: 'error',
+        message: `Gagal simulasi: ${err?.message || String(err)}`
+      });
+    } finally {
+      setSimIsLoading(false);
+    }
+  };
 
   // Computed and filtered/sorted lists for Database Unit
   const filteredAndSortedUnits = useMemo(() => {
@@ -446,10 +590,69 @@ export default function SupervisorPanel({
     return generateDateRange(previewStartDate, 8);
   }, [previewStartDate]);
 
+  // Real-time submissions on selectedDate matching current shift filter
+  const submittedFtwForDay = useMemo(() => {
+    return getSubmittedFtwForDateAndShift(
+      selectedDate, 
+      ftwShiftFilter === 'all' || ftwShiftFilter === 'ftw_submitted' || ftwShiftFilter === 'ftw_unfit' 
+        ? undefined 
+        : (Number(ftwShiftFilter) as 1 | 2), 
+      ftwRecords
+    );
+  }, [selectedDate, ftwShiftFilter, ftwRecords]);
+
+  // Breakdown of Shift 1 vs Shift 2 submissions
+  const ftwSummaryStats = useMemo(() => {
+    const allToday = getSubmittedFtwForDateAndShift(selectedDate, undefined, ftwRecords);
+    const shift1Today = allToday.filter(r => getRecordShift(r) === 1);
+    const shift2Today = allToday.filter(r => getRecordShift(r) === 2);
+    const shift2Fit = shift2Today.filter(r => r.status === 'fit').length;
+    const shift2Unfit = shift2Today.filter(r => r.status === 'unfit').length;
+    const shift1Fit = shift1Today.filter(r => r.status === 'fit').length;
+    const shift1Unfit = shift1Today.filter(r => r.status === 'unfit').length;
+    return {
+      totalToday: allToday.length,
+      shift1Count: shift1Today.length,
+      shift1Fit,
+      shift1Unfit,
+      shift2Count: shift2Today.length,
+      shift2Fit,
+      shift2Unfit
+    };
+  }, [selectedDate, ftwRecords]);
+
+  // Helper to find which setting and unit an operator NIK is assigned to on selectedDate
+  const findOperatorAssignedUnit = (nik: string) => {
+    const emp = employees.find(e => isNikMatch(e.nrp, nik));
+    if (!emp) return null;
+
+    for (const s of settings) {
+      const shiftInfo = calculateShift(s, selectedDate);
+      const isOp1 = s.operator1Id === emp.id;
+      const isOp2 = s.operator2Id === emp.id;
+
+      if (isOp1 || isOp2) {
+        const role = isOp1 ? shiftInfo.operator1Role : shiftInfo.operator2Role;
+        const unit = unitMap.get(s.unitId);
+        const code = s.groupId === 'master' ? (s.masterSlotCode || 'M-?') : (unit?.unitCode || 'U-?');
+        return {
+          settingId: s.id,
+          unitCode: code,
+          role, // 'S', 'M', or 'OFF'
+          shiftNumber: role === 'S' ? 1 : role === 'M' ? 2 : null,
+          isMaster: s.groupId === 'master',
+          employee: emp
+        };
+      }
+    }
+    return null;
+  };
+
   // Split configurations by group for submenus with search & sort defaults by Code
   const groupedSettings = useMemo(() => {
     let list = settings.filter(s => s.groupId === activeSubSetting);
 
+    // Apply search filter (including NIK)
     if (settingSearchQuery.trim()) {
       const q = settingSearchQuery.toLowerCase();
       list = list.filter(s => {
@@ -462,7 +665,42 @@ export default function SupervisorPanel({
         return code.toLowerCase().includes(q) || 
                brand.toLowerCase().includes(q) ||
                (op1?.name || '').toLowerCase().includes(q) ||
-               (op2?.name || '').toLowerCase().includes(q);
+               (op1?.nrp || '').toLowerCase().includes(q) ||
+               (op2?.name || '').toLowerCase().includes(q) ||
+               (op2?.nrp || '').toLowerCase().includes(q);
+      });
+    }
+
+    // Apply FTW / Shift Filter
+    if (ftwShiftFilter === '1') {
+      // Only include settings where an operator is working Shift 1 today
+      list = list.filter(s => {
+        const shiftInfo = calculateShift(s, selectedDate);
+        return shiftInfo.operator1Role === 'S' || shiftInfo.operator2Role === 'S';
+      });
+    } else if (ftwShiftFilter === '2') {
+      // Only include settings where an operator is working Shift 2 today
+      list = list.filter(s => {
+        const shiftInfo = calculateShift(s, selectedDate);
+        return shiftInfo.operator1Role === 'M' || shiftInfo.operator2Role === 'M';
+      });
+    } else if (ftwShiftFilter === 'ftw_submitted') {
+      // Only include settings where at least one operator has submitted FTW today
+      list = list.filter(s => {
+        const op1 = employeeMap.get(s.operator1Id);
+        const op2 = employeeMap.get(s.operator2Id);
+        const ftw1 = getOperatorFTW(op1?.nrp, selectedDate, undefined, ftwRecords);
+        const ftw2 = getOperatorFTW(op2?.nrp, selectedDate, undefined, ftwRecords);
+        return ftw1.status !== 'pending' || ftw2.status !== 'pending';
+      });
+    } else if (ftwShiftFilter === 'ftw_unfit') {
+      // Only include settings where at least one operator is UNFIT today
+      list = list.filter(s => {
+        const op1 = employeeMap.get(s.operator1Id);
+        const op2 = employeeMap.get(s.operator2Id);
+        const ftw1 = getOperatorFTW(op1?.nrp, selectedDate, undefined, ftwRecords);
+        const ftw2 = getOperatorFTW(op2?.nrp, selectedDate, undefined, ftwRecords);
+        return ftw1.status === 'unfit' || ftw2.status === 'unfit';
       });
     }
 
@@ -475,7 +713,7 @@ export default function SupervisorPanel({
     });
 
     return list;
-  }, [settings, activeSubSetting, settingSearchQuery, unitMap, employeeMap]);
+  }, [settings, activeSubSetting, settingSearchQuery, ftwShiftFilter, selectedDate, ftwRecords, unitMap, employeeMap]);
 
   return (
     <div className="flex flex-col h-full bg-slate-50 text-slate-700" id="supervisor-panel-container">
@@ -1477,11 +1715,22 @@ export default function SupervisorPanel({
                           className="w-full bg-slate-50 border border-slate-200 rounded px-3 py-2 text-sm text-slate-808 focus:outline-none focus:border-amber-550 font-bold cursor-pointer"
                         >
                           <option value="">-- Kosong / Tanpa Operator --</option>
-                          {employees.map(emp => (
-                            <option key={emp.id} value={emp.id} disabled={emp.id === setOp2Id}>
-                              {emp.name} ({emp.nrp} - Roster {emp.rosterPattern})
-                            </option>
-                          ))}
+                          {employees.map(emp => {
+                            const ftwS1 = getOperatorFTW(emp.nrp, selectedDate, 1, ftwRecords);
+                            const ftwS2 = getOperatorFTW(emp.nrp, selectedDate, 2, ftwRecords);
+                            const tag = ftwS1.status === 'fit' 
+                              ? '🟢 Fit (Shift 1)' 
+                              : ftwS2.status === 'fit' 
+                                ? '🟢 Fit (Shift 2)' 
+                                : ftwS1.status === 'unfit' || ftwS2.status === 'unfit' 
+                                  ? '🔴 Unfit' 
+                                  : '⚪ Belum FTW';
+                            return (
+                              <option key={emp.id} value={emp.id} disabled={emp.id === setOp2Id}>
+                                {emp.name} [NIK: {emp.nrp}] - {tag} (Roster {emp.rosterPattern})
+                              </option>
+                            );
+                          })}
                         </select>
                         <p className="text-[10px] text-slate-400 mt-1.5">Hari pertama siklus akan dimulai pada Shift 1 (Siang).</p>
                       </div>
@@ -1495,11 +1744,22 @@ export default function SupervisorPanel({
                           className="w-full bg-slate-50 border border-slate-200 rounded px-3 py-2 text-sm text-slate-808 focus:outline-none focus:border-amber-550 font-bold cursor-pointer"
                         >
                           <option value="">-- Kosong / Tanpa Operator --</option>
-                          {employees.map(emp => (
-                            <option key={emp.id} value={emp.id} disabled={emp.id === setOp1Id}>
-                              {emp.name} ({emp.nrp} - Roster {emp.rosterPattern})
-                            </option>
-                          ))}
+                          {employees.map(emp => {
+                            const ftwS1 = getOperatorFTW(emp.nrp, selectedDate, 1, ftwRecords);
+                            const ftwS2 = getOperatorFTW(emp.nrp, selectedDate, 2, ftwRecords);
+                            const tag = ftwS1.status === 'fit' 
+                              ? '🟢 Fit (Shift 1)' 
+                              : ftwS2.status === 'fit' 
+                                ? '🟢 Fit (Shift 2)' 
+                                : ftwS1.status === 'unfit' || ftwS2.status === 'unfit' 
+                                  ? '🔴 Unfit' 
+                                  : '⚪ Belum FTW';
+                            return (
+                              <option key={emp.id} value={emp.id} disabled={emp.id === setOp1Id}>
+                                {emp.name} [NIK: {emp.nrp}] - {tag} (Roster {emp.rosterPattern})
+                              </option>
+                            );
+                          })}
                         </select>
                         <p className="text-[10px] text-slate-400 mt-1.5">Hari pertama siklus akan dimulai pada Shift 2 (Malam).</p>
                       </div>
@@ -1641,22 +1901,245 @@ export default function SupervisorPanel({
                 </div>
               )}
 
+              {/* FTW Online Synchronization & NIK Monitoring Drawer */}
+              <div className="bg-slate-900 text-white rounded-xl border border-slate-800 shadow-lg overflow-hidden space-y-3 p-4">
+                
+                {/* Header & Controls Bar */}
+                <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 border-b border-slate-800/80 pb-3">
+                  <div className="flex items-start sm:items-center gap-3">
+                    <div className="p-2.5 bg-gradient-to-br from-amber-500 to-amber-600 rounded-xl text-slate-950 font-black shrink-0 shadow-md">
+                      <HeartPulse className="h-5 w-5 text-slate-950 animate-pulse" />
+                    </div>
+                    <div>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="text-xs font-black uppercase tracking-wider font-mono text-amber-400">
+                          SINKRONISASI NIK FTW ONLINE (FIREBASE ftw-wbs)
+                        </span>
+                        <span className="text-[10px] bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 px-2 py-0.5 rounded font-mono font-bold">
+                          Koleksi: {externalCollectionName}
+                        </span>
+                        <span className="text-[10px] bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 px-2 py-0.5 rounded font-mono font-bold">
+                          Tgl: {selectedDate}
+                        </span>
+                      </div>
+                      <p className="text-[11px] text-slate-300 mt-1 leading-relaxed">
+                        Data NIK ditarik otomatis dari database Firebase. Karyawan yang mengisi pada jam <strong>16.00 - 18.00</strong> otomatis masuk ke <strong>Shift 2 (Malam)</strong> dan langsung tercermin pada slot operator unit terkait.
+                      </p>
+                    </div>
+                  </div>
+
+                  {/* Action buttons */}
+                  <div className="flex flex-wrap items-center gap-2 shrink-0">
+                    <button
+                      onClick={handleDirectPullExternalFtw}
+                      disabled={isPullingFtw}
+                      className="px-3.5 py-1.5 bg-amber-500 hover:bg-amber-400 disabled:bg-slate-700 text-slate-950 disabled:text-slate-400 font-black rounded-lg text-xs transition cursor-pointer flex items-center gap-1.5 shadow-sm active:scale-95"
+                      title="Tarik data pengisian FTW dari Firebase ftw-wbs secara langsung"
+                    >
+                      <RefreshCw className={`h-3.5 w-3.5 ${isPullingFtw ? 'animate-spin' : ''}`} />
+                      <span>{isPullingFtw ? 'Menarik Data...' : 'Tarik NIK dari Firebase'}</span>
+                    </button>
+
+                    <button
+                      onClick={() => setIsSimModalOpen(true)}
+                      className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white font-bold rounded-lg text-xs transition cursor-pointer flex items-center gap-1.5 shadow-sm"
+                      title="Tes isi FTW pada jam 16.00-18.00 untuk menguji Shift 2"
+                    >
+                      <Zap className="h-3.5 w-3.5 text-amber-300" />
+                      <span>Tes Jam 16-18 (Shift 2)</span>
+                    </button>
+
+                    {onOpenFTWModal && (
+                      <button
+                        onClick={onOpenFTWModal}
+                        className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 font-bold rounded-lg text-xs transition cursor-pointer flex items-center gap-1.5 shadow-sm"
+                        title="Buka Panel FTW Lengkap"
+                      >
+                        <HeartPulse className="h-3.5 w-3.5 text-rose-400" />
+                        <span>Panel FTW</span>
+                      </button>
+                    )}
+                  </div>
+                </div>
+
+                {/* Status Notice if any */}
+                {pullFtwNotice && (
+                  <motion.div 
+                    initial={{ opacity: 0, y: -5 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    className={`p-2.5 rounded-lg text-xs font-mono font-bold flex items-center justify-between gap-2 ${
+                      pullFtwNotice.type === 'success' 
+                        ? 'bg-emerald-950/80 text-emerald-300 border border-emerald-500/30' 
+                        : 'bg-rose-950/80 text-rose-300 border border-rose-500/30'
+                    }`}
+                  >
+                    <span>{pullFtwNotice.message}</span>
+                    <button 
+                      onClick={() => setPullFtwNotice(null)} 
+                      className="text-slate-400 hover:text-white text-xs px-1 cursor-pointer"
+                    >
+                      ✕
+                    </button>
+                  </motion.div>
+                )}
+
+                {/* Filter and Shift Tabs */}
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pt-1">
+                  <div className="flex items-center gap-1.5 flex-wrap">
+                    <span className="text-[10px] text-slate-400 font-mono font-bold uppercase tracking-wider mr-1">Filter Shift:</span>
+                    
+                    <button
+                      onClick={() => setFtwShiftFilter('all')}
+                      className={`px-2.5 py-1 rounded text-[11px] font-bold transition cursor-pointer font-mono ${
+                        ftwShiftFilter === 'all'
+                          ? 'bg-amber-500 text-slate-950 font-black'
+                          : 'bg-slate-800 text-slate-300 hover:bg-slate-750 border border-slate-700'
+                      }`}
+                    >
+                      Semua Shift ({ftwSummaryStats.totalToday})
+                    </button>
+
+                    <button
+                      onClick={() => setFtwShiftFilter('2')}
+                      className={`px-2.5 py-1 rounded text-[11px] font-bold transition cursor-pointer font-mono flex items-center gap-1 ${
+                        ftwShiftFilter === '2'
+                          ? 'bg-indigo-500 text-white font-black'
+                          : 'bg-slate-800 text-slate-300 hover:bg-slate-750 border border-slate-700'
+                      }`}
+                      title="Filter hanya operator yang masuk Shift 2 (Malam: 15.00-03.59, persiapan 16.00-18.00)"
+                    >
+                      <Moon className="h-3 w-3 text-amber-300" />
+                      <span>Shift 2 Malam (16-18) [{ftwSummaryStats.shift2Count}]</span>
+                    </button>
+
+                    <button
+                      onClick={() => setFtwShiftFilter('1')}
+                      className={`px-2.5 py-1 rounded text-[11px] font-bold transition cursor-pointer font-mono flex items-center gap-1 ${
+                        ftwShiftFilter === '1'
+                          ? 'bg-amber-400 text-slate-950 font-black'
+                          : 'bg-slate-800 text-slate-300 hover:bg-slate-750 border border-slate-700'
+                      }`}
+                      title="Filter hanya operator yang masuk Shift 1 (Siang: 04.00-14.59)"
+                    >
+                      <Sun className="h-3 w-3 text-amber-500" />
+                      <span>Shift 1 Siang [{ftwSummaryStats.shift1Count}]</span>
+                    </button>
+
+                    <button
+                      onClick={() => setFtwShiftFilter('ftw_submitted')}
+                      className={`px-2.5 py-1 rounded text-[11px] font-bold transition cursor-pointer font-mono flex items-center gap-1 ${
+                        ftwShiftFilter === 'ftw_submitted'
+                          ? 'bg-emerald-600 text-white font-black'
+                          : 'bg-slate-800 text-slate-300 hover:bg-slate-750 border border-slate-700'
+                      }`}
+                      title="Filter unit yang operatornya sudah mengisi FTW hari ini"
+                    >
+                      <span>🟢 Sudah Isi FTW ({ftwSummaryStats.totalToday})</span>
+                    </button>
+
+                    {(ftwSummaryStats.shift1Unfit + ftwSummaryStats.shift2Unfit) > 0 && (
+                      <button
+                        onClick={() => setFtwShiftFilter('ftw_unfit')}
+                        className={`px-2.5 py-1 rounded text-[11px] font-bold transition cursor-pointer font-mono flex items-center gap-1 ${
+                          ftwShiftFilter === 'ftw_unfit'
+                            ? 'bg-rose-600 text-white font-black animate-pulse'
+                            : 'bg-rose-950/80 text-rose-300 border border-rose-500/40 hover:bg-rose-900'
+                        }`}
+                        title="Filter operator yang tidak fit dan butuh pengganti"
+                      >
+                        <span>🔴 Unfit ({ftwSummaryStats.shift1Unfit + ftwSummaryStats.shift2Unfit})</span>
+                      </button>
+                    )}
+                  </div>
+
+                  <div className="text-[10px] text-slate-400 font-mono">
+                    Total Isi Hari Ini: <span className="text-emerald-400 font-bold">{ftwSummaryStats.totalToday} Operator</span> (<span className="text-emerald-400">{ftwSummaryStats.shift1Fit + ftwSummaryStats.shift2Fit} Fit</span>, <span className="text-rose-400">{ftwSummaryStats.shift1Unfit + ftwSummaryStats.shift2Unfit} Unfit</span>)
+                  </div>
+                </div>
+
+                {/* Submissions NIK Pill Tray */}
+                <div className="bg-slate-950/60 p-2.5 rounded-lg border border-slate-800">
+                  <div className="flex items-center justify-between pb-1.5 mb-1.5 border-b border-slate-850">
+                    <span className="text-[10px] font-mono font-black uppercase tracking-wider text-slate-400 flex items-center gap-1.5">
+                      <Sparkles className="h-3 w-3 text-amber-400" />
+                      Daftar NIK Karyawan yang Mengisi FTW pada {formatIndonesianDate(selectedDate)}:
+                    </span>
+                    <span className="text-[9px] text-slate-500 font-mono">Klik NIK untuk sorot settingan unit</span>
+                  </div>
+
+                  {submittedFtwForDay.length > 0 ? (
+                    <div className="flex flex-wrap gap-2 max-h-32 overflow-y-auto pr-1">
+                      {submittedFtwForDay.map(rec => {
+                        const recShift = getRecordShift(rec);
+                        const assigned = findOperatorAssignedUnit(rec.nik);
+                        const timeStr = rec.jam || (rec.submittedAt ? new Date(rec.submittedAt).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' }) : '');
+                        const isFit = rec.status === 'fit';
+
+                        return (
+                          <button
+                            key={rec.id}
+                            onClick={() => {
+                              if (assigned?.settingId) {
+                                setExpandedSettingId(assigned.settingId);
+                                const el = document.getElementById(`setting-card-${assigned.settingId}`);
+                                if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                              } else {
+                                setSettingSearchQuery(rec.nik);
+                              }
+                            }}
+                            className={`group flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[11px] font-mono border transition-all cursor-pointer text-left ${
+                              isFit
+                                ? 'bg-emerald-950/50 hover:bg-emerald-900/60 border-emerald-500/40 text-emerald-200'
+                                : 'bg-rose-950/50 hover:bg-rose-900/60 border-rose-500/50 text-rose-200 animate-pulse'
+                            }`}
+                            title={`Klik untuk melihat konfigurasi unit ${assigned ? assigned.unitCode : 'Operator ini'}`}
+                          >
+                            <span className="text-xs">{isFit ? '🟢' : '🔴'}</span>
+                            <span className="font-black text-amber-300 font-mono tracking-tight">[{rec.nik}]</span>
+                            <span className="font-extrabold text-white truncate max-w-[120px]">{rec.name}</span>
+                            {timeStr && (
+                              <span className="text-[9.5px] bg-slate-800 text-slate-300 px-1 py-0.2 rounded border border-slate-700">
+                                {timeStr} WIB
+                              </span>
+                            )}
+                            <span className={`text-[9.5px] font-bold px-1 py-0.2 rounded ${
+                              recShift === 2 ? 'bg-indigo-900/70 text-indigo-300' : 'bg-amber-900/70 text-amber-300'
+                            }`}>
+                              {recShift === 2 ? 'Shift 2' : 'Shift 1'}
+                            </span>
+                            {assigned ? (
+                              <span className="text-[9.5px] font-black text-emerald-300 bg-emerald-900/50 px-1.5 py-0.2 rounded border border-emerald-500/30 flex items-center gap-0.5">
+                                ➔ {assigned.unitCode} ({assigned.role === 'S' ? 'S1' : assigned.role === 'M' ? 'S2' : 'OFF'})
+                              </span>
+                            ) : (
+                              <span className="text-[9.5px] text-slate-400 italic">➔ Belum di-setting</span>
+                            )}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  ) : (
+                    <div className="py-2 text-center text-xs text-slate-400 font-mono">
+                      Belum ada data NIK yang mengisi FTW untuk shift ini pada tanggal {selectedDate}. Klik <button onClick={handleDirectPullExternalFtw} className="text-amber-400 underline font-bold cursor-pointer">Tarik NIK dari Firebase</button> atau coba <button onClick={() => setIsSimModalOpen(true)} className="text-indigo-300 underline font-bold cursor-pointer">Tes Pengisian Jam 16-18 (Shift 2)</button>.
+                    </div>
+                  )}
+                </div>
+
+              </div>
+
               {/* Settings List Table with Image 2 style Calendar visual rotation view! */}
               <div className="bg-white rounded-lg border border-slate-200 shadow-sm overflow-hidden">
                 <div className="p-4 bg-slate-50 border-b border-slate-200 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
                   <div>
                     <h4 className="font-extrabold text-slate-800 text-sm">
-                      Daftar Konfigurasi: {activeSubSetting === 'utama' ? 'Grup Alat Utama' : 'Grup Master'}
+                      Daftar Konfigurasi: {activeSubSetting === 'utama' ? 'Grup Alat Utama' : 'Grup Master'} ({groupedSettings.length} Unit)
                     </h4>
-                    <p className="text-[11px] text-slate-500 font-medium">Klik baris unit untuk melihat visualisasi tabel rotasi 8 hari!</p>
+                    <p className="text-[11px] text-slate-500 font-medium">Kotak operator secara otomatis memetakan siapa yang masuk Shift 1 (Siang) atau Shift 2 (Malam) pada tanggal <strong>{formatIndonesianDate(selectedDate)}</strong> beserta status kelayakan FTW.</p>
                   </div>
-                  <div className="flex items-center gap-1.5 text-xs text-slate-500 font-mono select-none font-bold">
-                    <span className="w-2.5 h-2.5 rounded-sm bg-amber-500 inline-block"></span>
-                    <span>S = Siang</span>
-                    <span className="ml-2 w-2.5 h-2.5 rounded-sm bg-indigo-600 inline-block"></span>
-                    <span>M = Malam</span>
-                    <span className="ml-2 w-2.5 h-2.5 rounded-sm bg-slate-200 inline-block border border-slate-300"></span>
-                    <span className="text-rose-600 font-bold uppercase">OFF</span>
+                  <div className="flex items-center gap-2 text-xs font-mono select-none font-bold">
+                    <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-sm bg-amber-500 inline-block"></span><span>S=Siang</span></span>
+                    <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-sm bg-indigo-600 inline-block"></span><span>M=Malam</span></span>
+                    <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-sm bg-slate-200 inline-block border border-slate-300"></span><span className="text-rose-600 font-bold uppercase">OFF</span></span>
                   </div>
                 </div>
 
@@ -1675,28 +2158,155 @@ export default function SupervisorPanel({
 
                     if (!isMaster && !unit) return null;
 
+                    // Accurately determine who is on Shift 1 (Siang), Shift 2 (Malam), or OFF on selectedDate
+                    const shiftInfo = calculateShift(setting, selectedDate);
+                    const op1Role = shiftInfo.operator1Role; // 'S', 'M', or 'OFF'
+                    const op2Role = shiftInfo.operator2Role; // 'S', 'M', or 'OFF'
+
+                    const opShift1 = op1Role === 'S' ? op1 : op2Role === 'S' ? op2 : null;
+                    const opShift2 = op1Role === 'M' ? op1 : op2Role === 'M' ? op2 : null;
+
+                    // FTW for Operator on Shift 1
+                    const opShift1FTW = getOperatorFTW(opShift1?.nrp, selectedDate, 1, ftwRecords, opShift1?.name);
+                    const opShift1Style = getFTWStyleConfig(opShift1FTW.status);
+                    const opShift1Time = opShift1FTW.record?.submittedAt 
+                      ? new Date(opShift1FTW.record.submittedAt).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' }) 
+                      : (opShift1FTW.record?.jam || null);
+
+                    // FTW for Operator on Shift 2 (e.g. filled at 16.00 - 18.00)
+                    const opShift2FTW = getOperatorFTW(opShift2?.nrp, selectedDate, 2, ftwRecords, opShift2?.name);
+                    const opShift2Style = getFTWStyleConfig(opShift2FTW.status);
+                    const opShift2Time = opShift2FTW.record?.submittedAt 
+                      ? new Date(opShift2FTW.record.submittedAt).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' }) 
+                      : (opShift2FTW.record?.jam || null);
+
+                    // Check if anyone is OFF today
+                    const offOperators: Employee[] = [];
+                    if (op1Role === 'OFF' && op1) offOperators.push(op1);
+                    if (op2Role === 'OFF' && op2) offOperators.push(op2);
+
+                    // Also resolve op1 and op2 individual FTW for their scheduled shift
+                    const op1FTW = getOperatorFTW(op1?.nrp, selectedDate, op1Role === 'S' ? 1 : op1Role === 'M' ? 2 : undefined, ftwRecords, op1?.name);
+                    const op1Style = getFTWStyleConfig(op1FTW.status);
+                    const op2FTW = getOperatorFTW(op2?.nrp, selectedDate, op2Role === 'S' ? 1 : op2Role === 'M' ? 2 : undefined, ftwRecords, op2?.name);
+                    const op2Style = getFTWStyleConfig(op2FTW.status);
+
                     return (
-                      <div key={setting.id} className="transition">
+                      <div key={setting.id} id={`setting-card-${setting.id}`} className="transition">
                         {/* Summary Row */}
                         <div
                           onClick={() => setExpandedSettingId(isExpanded ? null : setting.id)}
                           className={`flex flex-col sm:flex-row sm:items-center sm:justify-between p-4 cursor-pointer hover:bg-slate-50 gap-4 transition ${
-                            isExpanded ? 'bg-amber-50 border-l-4 border-amber-500' : 'border-l-4 border-transparent'
+                            isExpanded ? 'bg-amber-50/80 border-l-4 border-amber-500' : 'border-l-4 border-transparent'
                           }`}
                         >
                           <div className="flex items-center gap-4">
-                            <div className="text-center font-mono font-extrabold bg-slate-100 text-amber-600 p-2 rounded border border-slate-200 shrink-0 w-16">
+                            <div className="text-center font-mono font-extrabold bg-slate-100 text-amber-600 p-2 rounded-lg border border-slate-200 shrink-0 w-16 shadow-xs">
                               {displayCode}
                             </div>
-                            <div className="space-y-0.5">
-                              <p className="text-sm font-black text-slate-800">{displayBrand}</p>
-                              <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-slate-505 font-mono">
-                                <span>Op 1 (Siang): <strong className="text-slate-805 font-bold">{op1?.name || 'TIDAK VALID'}</strong></span>
-                                <span className="text-slate-300">|</span>
-                                <span>Op 2 (Malam): <strong className="text-slate-805 font-bold">{op2?.name || 'TIDAK VALID'}</strong></span>
+                            <div className="space-y-1.5">
+                              <div className="flex items-center gap-2">
+                                <p className="text-sm font-black text-slate-800">{displayBrand}</p>
+                                <span className="text-[10px] text-slate-400 font-mono">
+                                  Roster: {setting.rosterPattern === 'weekly-fixed' ? 'Off Mingguan' : setting.rosterPattern}
+                                </span>
                               </div>
+                              
+                              {/* Kotak Settingan Manpower Berdasarkan Shift Hari Ini dengan NIK & Status FTW Online */}
+                              <div className="flex flex-wrap items-center gap-2 text-xs font-mono">
+                                
+                                {/* Kotak Operator Shift 1 (Siang) */}
+                                <div 
+                                  className={`flex items-center gap-2 px-3 py-1.5 rounded-lg border transition-all ${
+                                    opShift1FTW.status === 'fit'
+                                      ? 'bg-emerald-50/90 border-emerald-400 text-emerald-950 ring-1 ring-emerald-400/20'
+                                      : opShift1FTW.status === 'unfit'
+                                        ? 'bg-rose-50 border-rose-400 text-rose-950 ring-2 ring-rose-400/40 shadow-xs'
+                                        : 'bg-slate-100 border-slate-300 text-slate-700'
+                                  }`}
+                                  title={`Status FTW Shift 1: ${opShift1Style.description}${opShift1Time ? ` (Diisi jam ${opShift1Time} WIB)` : ''}`}
+                                >
+                                  <div className="flex items-center gap-1 font-bold text-slate-600 uppercase text-[10px]">
+                                    <Sun className="h-3 w-3 text-amber-500" />
+                                    <span>Shift 1 (Siang):</span>
+                                  </div>
+                                  <span className="font-black text-slate-900">{opShift1?.name || 'BELUM DI-SET'}</span>
+                                  {opShift1 && (
+                                    <span className="font-extrabold text-amber-700 bg-amber-500/10 px-1 py-0.2 rounded text-[10px] border border-amber-500/20">
+                                      NIK: {opShift1.nrp}
+                                    </span>
+                                  )}
+                                  {opShift1 && (
+                                    <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-[8.5px] font-black uppercase tracking-wider ${opShift1Style.badgeBg}`}>
+                                      <span className={`w-1.5 h-1.5 rounded-full ${
+                                        opShift1FTW.status === 'fit' ? 'bg-white' : opShift1FTW.status === 'unfit' ? 'bg-white' : 'bg-slate-200'
+                                      }`} />
+                                      {opShift1Style.label}
+                                    </span>
+                                  )}
+                                  {opShift1Time && (
+                                    <span className="text-[9px] font-mono font-bold text-slate-600 bg-white/90 px-1.5 py-0.2 rounded border border-slate-200" title="Jam Submit Form FTW">
+                                      {opShift1Time} WIB
+                                    </span>
+                                  )}
+                                </div>
+
+                                {/* Kotak Operator Shift 2 (Malam - Misal diisi 16.00-18.00) */}
+                                <div 
+                                  className={`flex items-center gap-2 px-3 py-1.5 rounded-lg border transition-all ${
+                                    opShift2FTW.status === 'fit'
+                                      ? 'bg-emerald-50/90 border-emerald-400 text-emerald-950 ring-2 ring-emerald-400/30'
+                                      : opShift2FTW.status === 'unfit'
+                                        ? 'bg-rose-50 border-rose-400 text-rose-950 ring-2 ring-rose-400/40 shadow-xs'
+                                        : 'bg-slate-100 border-slate-300 text-slate-700'
+                                  }`}
+                                  title={`Status FTW Shift 2: ${opShift2Style.description}${opShift2Time ? ` (Diisi jam ${opShift2Time} WIB)` : ''}`}
+                                >
+                                  <div className="flex items-center gap-1 font-bold text-indigo-700 uppercase text-[10px]">
+                                    <Moon className="h-3 w-3 text-indigo-600" />
+                                    <span>Shift 2 (Malam):</span>
+                                  </div>
+                                  <span className="font-black text-slate-900">{opShift2?.name || 'BELUM DI-SET'}</span>
+                                  {opShift2 && (
+                                    <span className="font-extrabold text-indigo-700 bg-indigo-500/10 px-1 py-0.2 rounded text-[10px] border border-indigo-500/20">
+                                      NIK: {opShift2.nrp}
+                                    </span>
+                                  )}
+                                  {opShift2 && (
+                                    <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-[8.5px] font-black uppercase tracking-wider ${opShift2Style.badgeBg}`}>
+                                      <span className={`w-1.5 h-1.5 rounded-full ${
+                                        opShift2FTW.status === 'fit' ? 'bg-white' : opShift2FTW.status === 'unfit' ? 'bg-white' : 'bg-slate-200'
+                                      }`} />
+                                      {opShift2Style.label}
+                                    </span>
+                                  )}
+                                  {opShift2Time && (
+                                    <span className="text-[9px] font-mono font-black text-indigo-800 bg-white/90 px-1.5 py-0.2 rounded border border-indigo-200 shadow-2xs" title="Jam Submit Form FTW (Sore/Malam)">
+                                      {opShift2Time} WIB
+                                    </span>
+                                  )}
+                                </div>
+
+                                {/* Kotak Operator yang OFF / Libur hari ini jika ada */}
+                                {offOperators.length > 0 && (
+                                  <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg border border-slate-200 bg-slate-50 text-slate-500 text-[10px]">
+                                    <span className="font-bold uppercase text-rose-500">OFF Hari Ini:</span>
+                                    <span>{offOperators.map(o => `${o.name} [${o.nrp}]`).join(', ')}</span>
+                                  </div>
+                                )}
+
+                              </div>
+
+                              {/* Base Assignment Reference footnote */}
+                              <div className="text-[10px] text-slate-400 font-mono flex flex-wrap gap-2 items-center pt-0.5">
+                                <span>Penugasan Dasar Roster:</span>
+                                <span className="text-slate-600">Op 1 (Awal Siang): <strong>{op1?.name || '-'}</strong> {op1 && `[${op1.nrp}]`}</span>
+                                <span>•</span>
+                                <span className="text-slate-600">Op 2 (Awal Malam): <strong>{op2?.name || '-'}</strong> {op2 && `[${op2.nrp}]`}</span>
+                              </div>
+
                               {isMaster && (setting.backupPriorityType1 || setting.backupPriorityType2 || setting.backupPriorityUnitId1 || setting.backupPriorityUnitId2) && (
-                                <div className="mt-1.5 flex flex-wrap gap-1.5 items-center">
+                                <div className="mt-1 flex flex-wrap gap-1.5 items-center">
                                   <span className="text-[9px] font-black text-amber-700 bg-amber-500/10 px-1.5 py-0.5 rounded uppercase tracking-wider font-mono">PRIORITAS GL:</span>
                                   {setting.backupPriorityType1 && (
                                     <span className="text-[10px] bg-emerald-50 text-emerald-800 border border-emerald-500/20 px-1.5 py-0.5 rounded font-black uppercase font-mono">
@@ -1799,8 +2409,18 @@ export default function SupervisorPanel({
                                     <td className="p-3 border-r border-slate-200 font-mono text-left text-slate-400 bg-slate-50/50 font-bold uppercase tracking-wider text-[10px]" colSpan={1}>
                                       PENUGASAN UTAMA
                                     </td>
-                                    <td className="p-3 border-r border-slate-200 text-left font-sans bg-slate-50/50 font-black text-slate-800 max-w-[200px] truncate">
-                                      {op1?.name || 'BELUM DI-SET'}
+                                    <td className="p-3 border-r border-slate-200 text-left font-sans bg-slate-50/50 max-w-[200px] truncate">
+                                      <div className="flex items-center gap-1.5">
+                                        <span className="font-black text-slate-800 truncate">{op1?.name || 'BELUM DI-SET'}</span>
+                                        {op1 && (
+                                          <span className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[8.5px] font-black uppercase shrink-0 ${op1Style.badgeBg}`}>
+                                            <span className={`w-1 h-1 rounded-full ${
+                                              op1FTW.status === 'fit' ? 'bg-white' : op1FTW.status === 'unfit' ? 'bg-white' : 'bg-slate-200'
+                                            }`} />
+                                            {op1Style.label}
+                                          </span>
+                                        )}
+                                      </div>
                                     </td>
                                     
                                     {/* 8-Day cells mapping Operator 1 */}
@@ -1834,8 +2454,18 @@ export default function SupervisorPanel({
                                     <td className="p-3 border-r border-slate-200 font-mono text-left text-slate-400 bg-slate-50/50 font-bold uppercase tracking-wider text-[10px]" colSpan={1}>
                                       PENUGASAN SHIFT
                                     </td>
-                                    <td className="p-3 border-r border-slate-200 text-left font-sans bg-slate-50/50 font-black text-slate-800 max-w-[200px] truncate">
-                                      {op2?.name || 'BELUM DI-SET'}
+                                    <td className="p-3 border-r border-slate-200 text-left font-sans bg-slate-50/50 max-w-[200px] truncate">
+                                      <div className="flex items-center gap-1.5">
+                                        <span className="font-black text-slate-800 truncate">{op2?.name || 'BELUM DI-SET'}</span>
+                                        {op2 && (
+                                          <span className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[8.5px] font-black uppercase shrink-0 ${op2Style.badgeBg}`}>
+                                            <span className={`w-1 h-1 rounded-full ${
+                                              op2FTW.status === 'fit' ? 'bg-white' : op2FTW.status === 'unfit' ? 'bg-white' : 'bg-slate-200'
+                                            }`} />
+                                            {op2Style.label}
+                                          </span>
+                                        )}
+                                      </div>
                                     </td>
 
                                     {/* 8-Day cells mapping Operator 2 */}
@@ -2225,6 +2855,161 @@ export default function SupervisorPanel({
 
         </AnimatePresence>
       </div>
+
+      {/* QUICK SIMULATION MODAL: TES PENGISIAN FTW JAM 16.00-18.00 (SHIFT 2) */}
+      {isSimModalOpen && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+          <motion.div 
+            initial={{ opacity: 0, scale: 0.95 }}
+            animate={{ opacity: 1, scale: 1 }}
+            exit={{ opacity: 0, scale: 0.95 }}
+            className="bg-white p-6 rounded-xl border border-slate-200 shadow-2xl w-full max-w-lg space-y-4"
+          >
+            <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+              <div className="flex items-center gap-2">
+                <div className="p-2 bg-indigo-100 text-indigo-700 rounded-lg">
+                  <Moon className="h-5 w-5" />
+                </div>
+                <div>
+                  <h4 className="font-extrabold text-slate-900 text-sm uppercase tracking-wider">
+                    Tes Pengisian FTW Jam 16.00 - 18.00
+                  </h4>
+                  <p className="text-[11px] text-slate-500">
+                    Simulasi pengisian data FTW sore untuk verifikasi langsung di Settingan Operator Shift 2.
+                  </p>
+                </div>
+              </div>
+              <button onClick={() => setIsSimModalOpen(false)} className="text-slate-400 hover:text-slate-650 cursor-pointer">
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            <form onSubmit={handleQuickSubmitShift2} className="space-y-4">
+              <div>
+                <label className="block text-[10px] uppercase text-slate-500 font-bold mb-1.5 font-mono">
+                  1. Pilih Karyawan / NIK yang Mengisi
+                </label>
+                <select
+                  value={simEmployeeNrp}
+                  onChange={(e) => setSimEmployeeNrp(e.target.value)}
+                  className="w-full bg-slate-50 border border-slate-200 rounded px-3 py-2 text-xs text-slate-800 font-bold focus:outline-none focus:border-amber-500 cursor-pointer"
+                >
+                  <option value="">-- Pilih Operator Terdaftar --</option>
+                  {employees.map(e => (
+                    <option key={e.id} value={e.nrp}>
+                      {e.name} [NIK: {e.nrp}] - Roster {e.rosterPattern}
+                    </option>
+                  ))}
+                </select>
+                <p className="text-[10px] text-slate-400 mt-1 font-mono">
+                  Atau masukkan NIK manual di bawah jika karyawan belum ada di database:
+                </p>
+                <input
+                  type="text"
+                  placeholder="Ketik NIK manual (misal: NIK9901 atau NRP102)"
+                  value={simEmployeeNrp}
+                  onChange={(e) => setSimEmployeeNrp(e.target.value.toUpperCase())}
+                  className="mt-1.5 w-full bg-slate-50 border border-slate-200 rounded px-3 py-1.5 text-xs text-slate-800 font-mono font-bold focus:outline-none focus:border-amber-500"
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-[10px] uppercase text-slate-500 font-bold mb-1.5 font-mono">
+                    2. Jam Pengisian (WIB)
+                  </label>
+                  <div className="flex items-center gap-1.5">
+                    <select
+                      value={simHour}
+                      onChange={(e) => setSimHour(Number(e.target.value))}
+                      className="w-1/2 bg-slate-50 border border-slate-200 rounded px-2.5 py-1.5 text-xs font-mono font-bold cursor-pointer"
+                    >
+                      <option value={15}>15 (Sore)</option>
+                      <option value={16}>16 (Sore)</option>
+                      <option value={17}>17 (Sore)</option>
+                      <option value={18}>18 (Sore)</option>
+                      <option value={19}>19 (Malam)</option>
+                      <option value={20}>20 (Malam)</option>
+                    </select>
+                    <span className="font-bold">:</span>
+                    <select
+                      value={simMinute}
+                      onChange={(e) => setSimMinute(e.target.value)}
+                      className="w-1/2 bg-slate-50 border border-slate-200 rounded px-2.5 py-1.5 text-xs font-mono font-bold cursor-pointer"
+                    >
+                      <option value="00">00</option>
+                      <option value="15">15</option>
+                      <option value="30">30</option>
+                      <option value="45">45</option>
+                    </select>
+                  </div>
+                  <span className="text-[9.5px] text-indigo-600 font-bold mt-1 block">
+                    {simHour >= 15 ? '➔ Otomatis SHIFT 2 (Malam)' : '➔ Shift 1'}
+                  </span>
+                </div>
+
+                <div>
+                  <label className="block text-[10px] uppercase text-slate-500 font-bold mb-1.5 font-mono">
+                    3. Status Kelayakan
+                  </label>
+                  <select
+                    value={simStatus}
+                    onChange={(e) => setSimStatus(e.target.value as any)}
+                    className="w-full bg-slate-50 border border-slate-200 rounded px-2.5 py-1.5 text-xs font-bold cursor-pointer"
+                  >
+                    <option value="fit">🟢 FIT (Layak Bekerja)</option>
+                    <option value="unfit">🔴 UNFIT (Sakit / Tidak Siap)</option>
+                  </select>
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-[10px] uppercase text-slate-500 font-bold mb-1 font-mono">
+                  Catatan Tambahan (Opsional)
+                </label>
+                <input
+                  type="text"
+                  placeholder="Misal: Siap kerja shift malam / demam"
+                  value={simNotes}
+                  onChange={(e) => setSimNotes(e.target.value)}
+                  className="w-full bg-slate-50 border border-slate-200 rounded px-3 py-1.5 text-xs text-slate-800 focus:outline-none focus:border-amber-500"
+                />
+              </div>
+
+              <div className="bg-amber-50 border border-amber-200 p-2.5 rounded-lg text-[10px] text-amber-900 leading-relaxed font-mono">
+                💡 <strong>Alur Sistem:</strong> Begitu tombol diklik, data disimpan ke Firebase proyek FTW dan database lokal. NIK operator akan langsung tercermin dengan kotak status berwarna di unit dan slot Shift 2 yang sesuai.
+              </div>
+
+              <div className="flex justify-end gap-2 pt-2 border-t border-slate-100">
+                <button
+                  type="button"
+                  onClick={() => setIsSimModalOpen(false)}
+                  className="px-4 py-2 border border-slate-200 bg-transparent rounded text-xs font-bold text-slate-500 hover:bg-slate-50 cursor-pointer"
+                >
+                  Batal
+                </button>
+                <button
+                  type="submit"
+                  disabled={simIsLoading || !simEmployeeNrp.trim()}
+                  className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 disabled:bg-slate-400 text-white font-bold rounded text-xs transition flex items-center gap-1.5 cursor-pointer shadow-sm"
+                >
+                  {simIsLoading ? (
+                    <>
+                      <RefreshCw className="h-3.5 w-3.5 animate-spin" />
+                      <span>Mengirim...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Check className="h-3.5 w-3.5" />
+                      <span>Kirim FTW ke Shift 2</span>
+                    </>
+                  )}
+                </button>
+              </div>
+            </form>
+          </motion.div>
+        </div>
+      )}
     </div>
   );
 }

@@ -3,24 +3,28 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState, useEffect } from 'react';
-import { HeavyUnit, Employee, UnitSetting, UnitGroup, BackupTransfer } from './types';
+import React, { useState, useEffect, useMemo } from 'react';
+import { HeavyUnit, Employee, UnitSetting, UnitGroup, BackupTransfer, FTWRecord } from './types';
 import { 
   INITIAL_UNITS, 
   INITIAL_EMPLOYEES, 
   INITIAL_GROUPS, 
-  INITIAL_SETTINGS 
+  INITIAL_SETTINGS,
+  INITIAL_FTW_RECORDS
 } from './data/seedData';
 import FieldMonitor from './components/FieldMonitor';
 import ResumeOperator from './components/ResumeOperator';
 import SupervisorPanel from './components/SupervisorPanel';
+import FTWOnlineModal from './components/FTWOnlineModal';
+import { getOperatorFTW, isNikMatch } from './utils/ftwHelper';
+import { subscribeExternalFtw } from './services/externalFtwService';
 import { 
   LayoutGrid, Settings2, Columns, Monitor, RefreshCw, Layers, ShieldCheck, 
-  HelpCircle, CalendarRange, Cloud, LogOut
+  HelpCircle, CalendarRange, Cloud, LogOut, HeartPulse
 } from 'lucide-react';
 import { motion } from 'motion/react';
 import { onAuthStateChanged } from 'firebase/auth';
-import { collection, onSnapshot } from 'firebase/firestore';
+import { collection, doc, onSnapshot } from 'firebase/firestore';
 import { 
   db, 
   auth, 
@@ -64,6 +68,25 @@ export default function App() {
     return saved ? JSON.parse(saved) : [];
   });
 
+  // FTW Online Submissions state (Sync from external project via NIK)
+  const [ftwRecords, setFtwRecords] = useState<FTWRecord[]>(() => {
+    const saved = localStorage.getItem('wbs_hauling_clean_v1_ftwRecords');
+    if (!saved) return INITIAL_FTW_RECORDS;
+    try {
+      const parsed: FTWRecord[] = JSON.parse(saved);
+      // Ensure seed records for 2026-09-26 are merged in if not already present
+      const savedIds = new Set(parsed.map(r => r.id));
+      const missingInitial = INITIAL_FTW_RECORDS.filter(r => !savedIds.has(r.id));
+      return [...parsed, ...missingInitial];
+    } catch {
+      return INITIAL_FTW_RECORDS;
+    }
+  });
+  const [isFTWModalOpen, setIsFTWModalOpen] = useState(false);
+  const [externalFtwCollection, setExternalFtwCollection] = useState<string>(() => {
+    return localStorage.getItem('wbs_external_ftw_col') || 'ftw';
+  });
+
   // Selected date defaults to current date in Waktu Indonesia Barat (WIB - UTC+7)
   const [selectedDate, setSelectedDate] = useState<string>(() => {
     const now = new Date();
@@ -90,6 +113,7 @@ export default function App() {
   const latestSettingsRef = React.useRef(settings);
   const latestGroupsRef = React.useRef(groups);
   const latestBackupTransfersRef = React.useRef(backupTransfers);
+  const latestFtwRecordsRef = React.useRef(ftwRecords);
 
   useEffect(() => {
     latestUnitsRef.current = units;
@@ -110,6 +134,11 @@ export default function App() {
   useEffect(() => {
     latestBackupTransfersRef.current = backupTransfers;
   }, [backupTransfers]);
+
+  useEffect(() => {
+    latestFtwRecordsRef.current = ftwRecords;
+    localStorage.setItem('wbs_hauling_clean_v1_ftwRecords', JSON.stringify(ftwRecords));
+  }, [ftwRecords]);
 
   // Sync real-time Firestore collections onto states automatically
   useEffect(() => {
@@ -211,14 +240,83 @@ export default function App() {
       // Allow passing through errors for backup transfers gracefully
     });
 
+    const unsubFTW = onSnapshot(collection(db, 'ftwSubmissions'), (snapshot) => {
+      const list: FTWRecord[] = [];
+      snapshot.forEach(doc => {
+        list.push(doc.data() as FTWRecord);
+      });
+      if (snapshot.empty && latestFtwRecordsRef.current.length > 0) {
+        latestFtwRecordsRef.current.forEach(item => {
+          saveDocument('ftwSubmissions', item.id, item);
+        });
+      } else if (list.length > 0) {
+        setFtwRecords(prev => {
+          const map = new Map(list.map(r => [r.id, r]));
+          const preserved = prev.filter(r => !map.has(r.id));
+          return [...list, ...preserved];
+        });
+      }
+    }, () => {
+      // Graceful fallback if permission or offline
+    });
+
+    // Cloud-wide FTW Registry listener inside employees collection (always allowed by Firestore rules)
+    const unsubFTWRegistry = onSnapshot(doc(db, 'employees', '_ftw_submissions_registry_'), (snap) => {
+      if (snap.exists()) {
+        const data = snap.data();
+        if (data && Array.isArray(data.records) && data.records.length > 0) {
+          setFtwRecords(prev => {
+            const incomingMap = new Map((data.records as FTWRecord[]).map(r => [r.id, r]));
+            const preserved = prev.filter(r => !incomingMap.has(r.id));
+            return [...data.records, ...preserved];
+          });
+        }
+      }
+    }, (err) => {
+      console.warn('[Firestore] FTW registry listener notice:', err?.message);
+    });
+
     return () => {
       unsubUnits();
       unsubEmployees();
       unsubGroups();
       unsubSettings();
       unsubBackupTransfers();
+      unsubFTW();
+      unsubFTWRegistry();
     };
   }, []);
+
+  // Background Real-Time Subscription to external Firebase project (ftw-wbs)
+  useEffect(() => {
+    let unsubExternal: (() => void) | null = null;
+    try {
+      unsubExternal = subscribeExternalFtw(
+        externalFtwCollection,
+        (incomingRecords) => {
+          if (incomingRecords && incomingRecords.length > 0) {
+            setFtwRecords(prev => {
+              const incomingIds = new Set(incomingRecords.map(r => r.id));
+              const filteredOld = prev.filter(r => !incomingIds.has(r.id));
+              const merged = [...incomingRecords, ...filteredOld];
+              return merged;
+            });
+            // Mirror to local Firestore cache
+            incomingRecords.forEach(r => saveDocument('ftwSubmissions', r.id, r));
+          }
+        },
+        (err) => {
+          console.warn('[ftw-wbs] Sync notice:', err?.message || err);
+        }
+      );
+    } catch (err) {
+      console.warn('Could not initialize ftw-wbs listener:', err);
+    }
+
+    return () => {
+      if (unsubExternal) unsubExternal();
+    };
+  }, [externalFtwCollection]);
 
   // Intercept state setters from SupervisorPanel to write to Firestore or localized fallback
   const customSetUnits = (value: React.SetStateAction<HeavyUnit[]>) => {
@@ -318,6 +416,79 @@ export default function App() {
     localStorage.setItem('wbs_hauling_clean_v1_groups', JSON.stringify(groups));
   }, [groups]);
 
+  // FTW Online Data Handlers
+  const handleSaveFtwRecord = (record: FTWRecord) => {
+    let nextList: FTWRecord[] = [];
+    setFtwRecords(prev => {
+      const idx = prev.findIndex(r => r.id === record.id || (r.date === record.date && isNikMatch(r.nik, record.nik)));
+      if (idx >= 0) {
+        nextList = [...prev];
+        nextList[idx] = record;
+      } else {
+        nextList = [record, ...prev];
+      }
+      return nextList;
+    });
+
+    // 1. Persist full FTW registry into cloud Firestore employees collection
+    saveDocument('employees', '_ftw_submissions_registry_', {
+      records: nextList.length > 0 ? nextList : [record],
+      lastUpdated: new Date().toISOString()
+    }).catch(err => console.warn('[Firestore] Registry save notice:', err));
+
+    // 2. Also update operator's employee doc if exists
+    const matchingEmp = employees.find(e => isNikMatch(e.nrp, record.nik));
+    if (matchingEmp) {
+      saveDocument('employees', matchingEmp.id, {
+        ...matchingEmp,
+        latestFtw: record
+      }).catch(() => {});
+    }
+
+    // 3. Fallback direct save
+    saveDocument('ftwSubmissions', record.id, record);
+  };
+
+  const handleDeleteFtwRecord = (id: string) => {
+    setFtwRecords(prev => {
+      const updated = prev.filter(r => r.id !== id);
+      saveDocument('employees', '_ftw_submissions_registry_', {
+        records: updated,
+        lastUpdated: new Date().toISOString()
+      }).catch(() => {});
+      return updated;
+    });
+    removeDocument('ftwSubmissions', id);
+  };
+
+  const handleBulkSyncFtw = (records: FTWRecord[]) => {
+    setFtwRecords(records);
+    // Persist full FTW registry into cloud Firestore employees collection
+    saveDocument('employees', '_ftw_submissions_registry_', {
+      records: records,
+      lastUpdated: new Date().toISOString()
+    }).catch(err => console.warn('[Firestore] Registry save notice:', err));
+
+    // Also try saving individual docs
+    records.forEach(r => saveDocument('ftwSubmissions', r.id, r));
+  };
+
+  // Live quick metrics for header launcher button
+  const { headerFitCount, headerUnfitCount, headerPendingCount } = useMemo(() => {
+    let fit = 0;
+    let unfit = 0;
+    let pending = 0;
+
+    employees.forEach(emp => {
+      const res = getOperatorFTW(emp.nrp, selectedDate, 1, ftwRecords);
+      if (res.status === 'fit') fit++;
+      else if (res.status === 'unfit') unfit++;
+      else pending++;
+    });
+
+    return { headerFitCount: fit, headerUnfitCount: unfit, headerPendingCount: pending };
+  }, [employees, selectedDate, ftwRecords]);
+
   // System hard reset function
   const handleSystemReset = () => {
     if (confirm('Apakah Anda yakin ingin menyetel ulang seluruh data ke setelan awal pabrik (demo seed data)? Semua data di cloud dan lokal akan diatur ulang.')) {
@@ -402,6 +573,21 @@ export default function App() {
               )}
             </div>
 
+            {/* FTW Online Synchronization Launcher Button */}
+            <button
+              onClick={() => setIsFTWModalOpen(true)}
+              className="flex items-center gap-2 bg-slate-900 hover:bg-slate-800 text-white text-xs py-1.5 px-3 rounded-lg font-bold shadow-xs transition cursor-pointer border border-slate-700"
+              title="Buka Sinkronisasi FTW Online (Fit to Work via NIK)"
+            >
+              <HeartPulse className="h-4 w-4 text-rose-500 animate-pulse" />
+              <span className="font-extrabold uppercase font-mono tracking-tight text-amber-400 hidden sm:inline">FTW Online:</span>
+              <span className="inline-flex items-center gap-1.5 text-[11px] font-mono">
+                <span className="text-emerald-400 bg-emerald-950/60 px-1.5 py-0.2 rounded font-black border border-emerald-500/30">🟢 {headerFitCount}</span>
+                <span className="text-rose-400 bg-rose-950/60 px-1.5 py-0.2 rounded font-black border border-rose-500/30">🔴 {headerUnfitCount}</span>
+                <span className="text-slate-300 bg-slate-800 px-1.5 py-0.2 rounded font-black border border-slate-700">⚪ {headerPendingCount}</span>
+              </span>
+            </button>
+
             {/* View Mode selection */}
             <div className="flex items-center bg-slate-100 rounded-lg p-1 border border-slate-200 text-xs font-bold font-sans">
               <button
@@ -470,6 +656,8 @@ export default function App() {
               selectedDate={selectedDate}
               setSelectedDate={setSelectedDate}
               onNavigateToSetting={handleNavigateToSetting}
+              ftwRecords={ftwRecords}
+              onOpenFTWModal={() => setIsFTWModalOpen(true)}
             />
           </div>
         )}
@@ -487,6 +675,8 @@ export default function App() {
               backupTransfers={backupTransfers}
               selectedDate={selectedDate}
               setSelectedDate={setSelectedDate}
+              ftwRecords={ftwRecords}
+              onOpenFTWModal={() => setIsFTWModalOpen(true)}
             />
           </div>
         )}
@@ -508,13 +698,35 @@ export default function App() {
               backupTransfers={backupTransfers}
               setBackupTransfers={customSetBackupTransfers}
               selectedDate={selectedDate}
+              setSelectedDate={setSelectedDate}
               activeSettingIdForPanel={activeSettingIdForPanel}
               setActiveSettingIdForPanel={setActiveSettingIdForPanel}
+              ftwRecords={ftwRecords}
+              onOpenFTWModal={() => setIsFTWModalOpen(true)}
+              onBulkSyncFtw={handleBulkSyncFtw}
+              onSaveFtwRecord={handleSaveFtwRecord}
+              externalCollectionName={externalFtwCollection}
             />
           </div>
         )}
 
       </main>
+
+      {/* FTW Online Management & Sync Modal */}
+      {isFTWModalOpen && (
+        <FTWOnlineModal
+          isOpen={isFTWModalOpen}
+          onClose={() => setIsFTWModalOpen(false)}
+          ftwRecords={ftwRecords}
+          onSaveRecord={handleSaveFtwRecord}
+          onDeleteRecord={handleDeleteFtwRecord}
+          onBulkSync={handleBulkSyncFtw}
+          employees={employees}
+          selectedDate={selectedDate}
+          externalCollectionName={externalFtwCollection}
+          onSetExternalCollectionName={setExternalFtwCollection}
+        />
+      )}
 
     </div>
   );

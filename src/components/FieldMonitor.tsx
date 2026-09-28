@@ -4,9 +4,10 @@
  */
 
 import React, { useState, useMemo } from 'react';
-import { HeavyUnit, Employee, UnitSetting, UnitGroup, BackupTransfer } from '../types';
+import { HeavyUnit, Employee, UnitSetting, UnitGroup, BackupTransfer, FTWRecord } from '../types';
 import { calculateShift, formatIndonesianDate, formatIndonesianDayName } from '../utils/scheduler';
-import { Search, Calendar, ShieldAlert, CheckCircle2, Moon, Sun, AlertTriangle, ListFilter, Users } from 'lucide-react';
+import { getOperatorFTW, getFTWStyleConfig } from '../utils/ftwHelper';
+import { Search, Calendar, ShieldAlert, CheckCircle2, Moon, Sun, AlertTriangle, ListFilter, Users, HeartPulse, X, Copy, Check, Filter } from 'lucide-react';
 import { motion } from 'motion/react';
 
 interface FieldMonitorProps {
@@ -18,6 +19,8 @@ interface FieldMonitorProps {
   selectedDate: string;
   setSelectedDate: (date: string) => void;
   onNavigateToSetting: (settingId: string) => void;
+  ftwRecords?: FTWRecord[];
+  onOpenFTWModal?: () => void;
 }
 
 export default function FieldMonitor({
@@ -28,7 +31,9 @@ export default function FieldMonitor({
   backupTransfers,
   selectedDate,
   setSelectedDate,
-  onNavigateToSetting
+  onNavigateToSetting,
+  ftwRecords = [],
+  onOpenFTWModal
 }: FieldMonitorProps) {
   const [selectedShift, setSelectedShift] = useState<1 | 2>(() => {
     const hour = new Date().getHours();
@@ -36,6 +41,10 @@ export default function FieldMonitor({
   });
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedGroupFilter, setSelectedGroupFilter] = useState<string>('all');
+  const [isPendingFtwModalOpen, setIsPendingFtwModalOpen] = useState(false);
+  const [showOnlyPendingFtw, setShowOnlyPendingFtw] = useState(false);
+  const [pendingSearchQuery, setPendingSearchQuery] = useState('');
+  const [copiedToast, setCopiedToast] = useState(false);
 
   // Employee mapping-by-ID helper for fast lookups
   const employeeMap = useMemo(() => {
@@ -513,23 +522,35 @@ export default function FieldMonitor({
   }, [settings, selectedDate, selectedShift, employeeMap, unitMap, backupTransfers, units]);
 
   // Filter based on search query (unit code or operator name) and group id
+  // Filtered Settings based on Search, Group Filter, and Pending FTW filter
   const filteredResolvedSettings = useMemo(() => {
     return resolvedSettings.filter(item => {
       if (!item.unit) return false;
       
-      const matchesSearch = 
-        item.unit.unitCode.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        (item.activeOperator?.name || 'TIDAK ADA OPERATOR').toLowerCase().includes(searchQuery.toLowerCase()) ||
-        item.unit.brand.toLowerCase().includes(searchQuery.toLowerCase());
+      const q = searchQuery.toLowerCase().trim();
+      const matchesSearch = !q || (
+        item.unit.unitCode.toLowerCase().includes(q) ||
+        (item.activeOperator?.name || 'TIDAK ADA OPERATOR').toLowerCase().includes(q) ||
+        (item.activeOperator?.nrp || '').toLowerCase().includes(q) ||
+        item.unit.brand.toLowerCase().includes(q)
+      );
 
       const matchesGroup = selectedGroupFilter === 'all' || item.setting.groupId === selectedGroupFilter;
 
+      if (showOnlyPendingFtw) {
+        if (!item.activeOperator || item.activeRoleStatus === 'OFF') return false;
+        const ftw = getOperatorFTW(item.activeOperator.nrp, selectedDate, selectedShift, ftwRecords, item.activeOperator.name);
+        if (ftw.status !== 'pending') return false;
+      }
+
       return matchesSearch && matchesGroup;
     });
-  }, [resolvedSettings, searchQuery, selectedGroupFilter]);
+  }, [resolvedSettings, searchQuery, selectedGroupFilter, showOnlyPendingFtw, selectedDate, selectedShift, ftwRecords]);
 
   // Units that are not yet configured in setting
   const unconfiguredUnits = useMemo(() => {
+    if (showOnlyPendingFtw) return [];
+
     const configuredUnitIds = new Set(settings.map(s => s.unitId));
     const filledUnconfiguredUnitIds = new Set(
       resolvedSettings
@@ -542,7 +563,7 @@ export default function FieldMonitor({
                             u.brand.toLowerCase().includes(searchQuery.toLowerCase());
       return !configuredUnitIds.has(u.id) && !filledUnconfiguredUnitIds.has(u.id) && matchesSearch;
     });
-  }, [units, settings, searchQuery, resolvedSettings]);
+  }, [units, settings, searchQuery, resolvedSettings, showOnlyPendingFtw]);
 
   // Active master operators who are currently standby (on-duty but not auto-dispatched or manually transferred out)
   const standbyMastersList = useMemo(() => {
@@ -624,9 +645,122 @@ export default function FieldMonitor({
         m.priorities.some(p => p.toLowerCase().includes(searchQuery.toLowerCase()));
 
       const matchesGroup = selectedGroupFilter === 'all' || selectedGroupFilter === 'master' || selectedGroupFilter === 'utama';
+      
+      if (showOnlyPendingFtw) {
+        const ftw = getOperatorFTW(m.activeOperator.nrp, selectedDate, selectedShift, ftwRecords, m.activeOperator.name);
+        if (ftw.status !== 'pending') return false;
+      }
+
       return matchesSearch && matchesGroup;
     });
-  }, [standbyMastersList, searchQuery, selectedGroupFilter]);
+  }, [standbyMastersList, searchQuery, selectedGroupFilter, showOnlyPendingFtw, selectedDate, selectedShift, ftwRecords]);
+
+  // List of on-duty operators in this shift who have not submitted FTW
+  const pendingFtwOperators = useMemo(() => {
+    const list: Array<{
+      id: string;
+      nrp: string;
+      name: string;
+      unitCode: string;
+      unitBrand: string;
+      unitType: string;
+      groupName: string;
+      roleStatus: string;
+      isMaster: boolean;
+      settingId?: string;
+    }> = [];
+
+    // 1. Regular units
+    resolvedSettings.forEach(item => {
+      if (item.activeRoleStatus !== 'OFF' && item.activeOperator) {
+        const ftw = getOperatorFTW(
+          item.activeOperator.nrp,
+          selectedDate,
+          selectedShift,
+          ftwRecords,
+          item.activeOperator.name
+        );
+        if (ftw.status === 'pending') {
+          const grp = groups.find(g => g.id === item.setting.groupId);
+          list.push({
+            id: `${item.setting.id}-${item.activeOperator.id}`,
+            nrp: item.activeOperator.nrp,
+            name: item.activeOperator.name,
+            unitCode: item.unit?.unitCode || 'Unit',
+            unitBrand: item.unit?.brand || '',
+            unitType: item.unit?.type || 'Alat Berat',
+            groupName: grp?.name || 'Alat Utama',
+            roleStatus: item.isFilledByMaster ? 'Master Backup' : 'Operator Reguler',
+            isMaster: false,
+            settingId: item.setting.id
+          });
+        }
+      }
+    });
+
+    // 2. Standby masters
+    standbyMastersList.forEach(m => {
+      const ftw = getOperatorFTW(
+        m.activeOperator.nrp,
+        selectedDate,
+        selectedShift,
+        ftwRecords,
+        m.activeOperator.name
+      );
+      if (ftw.status === 'pending') {
+        list.push({
+          id: `master-${m.setting.id}-${m.activeOperator.id}`,
+          nrp: m.activeOperator.nrp,
+          name: m.activeOperator.name,
+          unitCode: m.slotCode,
+          unitBrand: 'Pool Cadangan',
+          unitType: 'Cadangan Pool',
+          groupName: 'Master Standby',
+          roleStatus: 'Master Standby',
+          isMaster: true,
+          settingId: m.setting.id
+        });
+      }
+    });
+
+    return list;
+  }, [resolvedSettings, standbyMastersList, selectedDate, selectedShift, ftwRecords, groups]);
+
+  // Filtered pending list for the modal search
+  const filteredPendingList = useMemo(() => {
+    if (!pendingSearchQuery.trim()) return pendingFtwOperators;
+    const q = pendingSearchQuery.toLowerCase().trim();
+    return pendingFtwOperators.filter(op =>
+      op.name.toLowerCase().includes(q) ||
+      op.nrp.toLowerCase().includes(q) ||
+      op.unitCode.toLowerCase().includes(q) ||
+      op.groupName.toLowerCase().includes(q)
+    );
+  }, [pendingFtwOperators, pendingSearchQuery]);
+
+  // Copy pending operators list to clipboard for WhatsApp notification
+  const handleCopyPendingList = () => {
+    if (pendingFtwOperators.length === 0) return;
+    const shiftLabel = selectedShift === 1 ? 'Siang' : 'Malam';
+    const dateFormatted = formatIndonesianDate(selectedDate);
+    const lines = [
+      `*DAFTAR OPERATOR BELUM ISI FTW*`,
+      `Shift: ${shiftLabel}`,
+      `Tanggal: ${dateFormatted}`,
+      `Total: ${pendingFtwOperators.length} Orang`,
+      ``,
+      ...pendingFtwOperators.map((op, idx) => 
+        `${idx + 1}. ${op.name} (${op.nrp}) - Unit: ${op.unitCode} [${op.groupName}]`
+      ),
+      ``,
+      `_Harap segera mengisi formulir Fit To Work (FTW) sebelum beroperasi._`
+    ];
+
+    navigator.clipboard.writeText(lines.join('\n')).then(() => {
+      setCopiedToast(true);
+      setTimeout(() => setCopiedToast(false), 3000);
+    });
+  };
 
   // Group both resolved settings and unconfigured units by their Category/Type (e.g. Wheel Loader, Dump Truck, etc.)
   const categorizedUnits = useMemo(() => {
@@ -737,6 +871,28 @@ export default function FieldMonitor({
             />
           </div>
         </div>
+
+        {/* FTW Online Quick Status Strip */}
+        <div className="flex flex-wrap items-center justify-between gap-2 mt-3 px-3.5 py-2 bg-slate-900 text-white rounded-lg text-xs border border-slate-800 shadow-xs">
+          <div className="flex items-center gap-2.5">
+            <HeartPulse className="h-4 w-4 text-amber-500 shrink-0" />
+            <span className="font-mono font-black uppercase text-[10px] tracking-wide text-amber-400">STATUS FTW ONLINE:</span>
+            <div className="flex items-center gap-1.5 font-mono text-[9.5px]">
+              <span className="px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 font-bold">🟢 Fit (Hijau)</span>
+              <span className="px-2 py-0.5 rounded bg-rose-500/20 text-rose-300 border border-rose-500/30 font-bold">🔴 Unfit (Merah)</span>
+              <span className="px-2 py-0.5 rounded bg-slate-700 text-slate-300 border border-slate-600 font-bold">⚪ Belum Isi (Abu)</span>
+            </div>
+          </div>
+          {onOpenFTWModal && (
+            <button
+              onClick={onOpenFTWModal}
+              className="px-2.5 py-1 bg-amber-500 hover:bg-amber-400 text-slate-950 font-black rounded text-[10px] uppercase font-mono transition cursor-pointer flex items-center gap-1 shadow-xs"
+            >
+              <HeartPulse className="h-3 w-3" />
+              <span>DATA FTW ONLINE</span>
+            </button>
+          )}
+        </div>
       </div>
 
       {/* 2. Board Controls (Filter & Search) */}
@@ -753,12 +909,15 @@ export default function FieldMonitor({
           />
         </div>
 
-        <div className="flex gap-2 shrink-0">
+        <div className="flex flex-wrap items-center gap-2 shrink-0">
           <div className="flex items-center gap-1 bg-slate-50 p-1 rounded-md border border-slate-200">
             <button
-              onClick={() => setSelectedGroupFilter('all')}
+              onClick={() => {
+                setSelectedGroupFilter('all');
+                setShowOnlyPendingFtw(false);
+              }}
               className={`px-3 py-1.5 text-xs font-bold rounded-sm transition cursor-pointer ${
-                selectedGroupFilter === 'all'
+                selectedGroupFilter === 'all' && !showOnlyPendingFtw
                   ? 'bg-amber-500 text-slate-950 font-black'
                   : 'text-slate-500 hover:text-slate-900'
               }`}
@@ -768,9 +927,12 @@ export default function FieldMonitor({
             {groups.map(g => (
               <button
                 key={g.id}
-                onClick={() => setSelectedGroupFilter(g.id)}
+                onClick={() => {
+                  setSelectedGroupFilter(g.id);
+                  setShowOnlyPendingFtw(false);
+                }}
                 className={`px-3 py-1.5 text-xs font-bold rounded-sm transition cursor-pointer ${
-                  selectedGroupFilter === g.id
+                  selectedGroupFilter === g.id && !showOnlyPendingFtw
                     ? 'bg-amber-500 text-slate-950 font-black'
                     : 'text-slate-500 hover:text-slate-900'
                 }`}
@@ -779,8 +941,54 @@ export default function FieldMonitor({
               </button>
             ))}
           </div>
+
+          {/* Tombol BELUM ISI FTW di sebelah tombol grup alat utama */}
+          <button
+            onClick={() => setIsPendingFtwModalOpen(true)}
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-black uppercase font-mono transition cursor-pointer shadow-xs border ${
+              showOnlyPendingFtw || isPendingFtwModalOpen
+                ? 'bg-rose-600 text-white border-rose-700 shadow-md ring-2 ring-rose-400'
+                : 'bg-rose-50 hover:bg-rose-100 text-rose-700 border-rose-300'
+            }`}
+            title="Klik untuk mengecek daftar nama operator yang belum mengisi FTW di shift ini"
+          >
+            <AlertTriangle className={`h-3.5 w-3.5 ${showOnlyPendingFtw ? 'text-white' : 'text-rose-600 animate-pulse'}`} />
+            <span>BELUM ISI FTW</span>
+            <span className={`px-1.5 py-0.2 rounded-full text-[10px] font-black ${
+              showOnlyPendingFtw ? 'bg-white text-rose-700' : 'bg-rose-600 text-white'
+            }`}>
+              {pendingFtwOperators.length}
+            </span>
+          </button>
         </div>
       </div>
+
+      {/* Active Filter Banner when Show Only Pending FTW is enabled */}
+      {showOnlyPendingFtw && (
+        <div className="bg-rose-50 border-b border-rose-200 px-6 py-2.5 flex items-center justify-between text-xs text-rose-900">
+          <div className="flex items-center gap-2">
+            <AlertTriangle className="h-4 w-4 text-rose-600 shrink-0" />
+            <span className="font-bold">
+              Memfilter Tampilan: Hanya menampilkan unit &amp; master dengan operator yang <strong>Belum Mengisi FTW</strong> ({filteredResolvedSettings.length + filteredStandbyMasters.length} unit/slot).
+            </span>
+          </div>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setIsPendingFtwModalOpen(true)}
+              className="text-xs font-black underline hover:text-rose-700 font-mono cursor-pointer"
+            >
+              Lihat Daftar Nama
+            </button>
+            <span className="text-rose-300">|</span>
+            <button
+              onClick={() => setShowOnlyPendingFtw(false)}
+              className="px-2 py-0.5 bg-rose-200 hover:bg-rose-300 text-rose-900 font-bold rounded text-[11px] font-mono cursor-pointer transition"
+            >
+              Reset Filter
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* 3. Monitor Active Grid (Blueprint layout from Image 1) */}
       <div className="flex-1 p-6 overflow-y-auto bg-slate-100" id="field-monitor-scroll-area">
@@ -815,13 +1023,18 @@ export default function FieldMonitor({
                    if (!unit) return null;
                    const isOff = activeRoleStatus === 'OFF' || !activeOperator;
                    const isMasterGroup = setting.groupId === 'master';
+                   const activeOpFTW = activeOperator ? getOperatorFTW(activeOperator.nrp, selectedDate, selectedShift, ftwRecords, activeOperator.name) : { status: 'pending' as const };
+                   const ftwStyle = getFTWStyleConfig(activeOpFTW.status);
+                   const isUnfit = !isOff && activeOpFTW.status === 'unfit';
 
                    return (
                      <motion.div
                        key={setting.id}
                        layoutId={`field-card-${setting.id}`}
                        className={`select-none bg-white border rounded-lg shadow-sm flex flex-col overflow-hidden transition-all duration-200 cursor-pointer ${
-                         isUnitBroken
+                         isUnfit
+                           ? 'border-rose-500 ring-2 ring-rose-500/50 bg-rose-50/20 shadow-md'
+                         : isUnitBroken
                            ? 'border-rose-350 bg-rose-50/10 hover:border-rose-400 hover:shadow-md'
                          : isOff 
                            ? 'border-slate-200 bg-slate-50' 
@@ -940,6 +1153,32 @@ export default function FieldMonitor({
                                }`}></span>
                                <span className="truncate">{activeOperator.nrp}</span>
                              </p>
+
+                             {/* FTW Online Status Pill */}
+                             <div className="mt-1 flex items-center justify-center">
+                               <span 
+                                 className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[8px] font-black uppercase tracking-wider ${
+                                   activeOpFTW.status === 'fit'
+                                     ? 'bg-emerald-500 text-white shadow-xs'
+                                     : activeOpFTW.status === 'unfit'
+                                       ? 'bg-rose-600 text-white shadow-xs animate-pulse ring-1 ring-rose-300'
+                                       : 'bg-slate-200 text-slate-600 border border-slate-300'
+                                 }`}
+                                 title={`Status FTW Online: ${ftwStyle.description} [${activeOperator.nrp}]`}
+                               >
+                                 <span className={`w-1.5 h-1.5 rounded-full ${
+                                   activeOpFTW.status === 'fit' ? 'bg-white' : activeOpFTW.status === 'unfit' ? 'bg-white' : 'bg-slate-400'
+                                 }`} />
+                                 <span>{ftwStyle.label}</span>
+                               </span>
+                             </div>
+
+                             {activeOpFTW.status === 'unfit' && (
+                               <div className="mt-1 px-1.5 py-0.5 bg-rose-600 text-white rounded text-[7.5px] font-black uppercase tracking-tight flex items-center justify-center gap-1 shadow-xs animate-pulse">
+                                 <AlertTriangle className="h-2.5 w-2.5 shrink-0" />
+                                 <span>UNFIT - TUKAR MASTER</span>
+                               </div>
+                             )}
 
                              {isFilledByBreakdownRelocation && (
                                <div className={`mt-1.5 px-2 py-0.5 rounded text-[9px] font-black uppercase text-center flex items-center justify-center gap-1 shrink-0 border ${
@@ -1093,9 +1332,30 @@ export default function FieldMonitor({
                                <span className="truncate">{m.activeOperator.nrp}</span>
                              </p>
 
-                             <div className="mt-1.5 px-2 py-0.5 rounded text-[10px] font-black uppercase text-center flex items-center justify-center gap-1 shrink-0 border bg-amber-550/10 text-amber-900 border-amber-500/20">
-                               ★ READY / SIAGA ★
-                             </div>
+                             {(() => {
+                               const masterFtw = getOperatorFTW(m.activeOperator.nrp, selectedDate, selectedShift, ftwRecords, m.activeOperator.name);
+                               const masterFtwStyle = getFTWStyleConfig(masterFtw.status);
+                               const masterFtwTime = masterFtw.record?.submittedAt 
+                                 ? new Date(masterFtw.record.submittedAt).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' }) 
+                                 : (masterFtw.record?.jam || null);
+
+                               return (
+                                 <div 
+                                   className={`mt-1.5 px-2 py-0.5 rounded text-[9.5px] font-black uppercase text-center flex items-center justify-center gap-1 shrink-0 border transition-all ${masterFtwStyle.badgeBg}`}
+                                   title={`Status FTW: ${masterFtwStyle.description}${masterFtwTime ? ` (${masterFtwTime} WIB)` : ''}`}
+                                 >
+                                   <span className={`w-1.5 h-1.5 rounded-full ${
+                                     masterFtw.status === 'fit' ? 'bg-white' : masterFtw.status === 'unfit' ? 'bg-white animate-pulse' : 'bg-slate-300'
+                                   }`} />
+                                   <span>{masterFtwStyle.label}</span>
+                                   {masterFtwTime && (
+                                     <span className="text-[8px] font-mono opacity-90 ml-0.5">
+                                       ({masterFtwTime})
+                                     </span>
+                                   )}
+                                 </div>
+                               );
+                             })()}
 
                              <div className="mt-1 truncate">
                                <span className="inline-flex text-[8px] px-1 bg-amber-50 text-amber-800 rounded border border-amber-100 font-extrabold uppercase truncate">
@@ -1146,6 +1406,164 @@ export default function FieldMonitor({
           *PAPAN DIPERBARUI OTOMATIS SEIRING PERUBAHAN TANGGAL &amp; SHIFT
         </div>
       </div>
+
+      {/* MODAL: DAFTAR OPERATOR BELUM ISI FTW */}
+      {isPendingFtwModalOpen && (
+        <div className="fixed inset-0 bg-slate-950/70 backdrop-blur-xs flex items-center justify-center p-3 sm:p-5 z-50 animate-fadeIn font-sans">
+          <div className="bg-white rounded-2xl border border-slate-200 shadow-2xl w-full max-w-3xl max-h-[90vh] flex flex-col overflow-hidden">
+            {/* Modal Header */}
+            <div className="bg-slate-900 text-white p-4 sm:p-5 flex items-center justify-between shrink-0 border-b border-slate-800">
+              <div className="flex items-center gap-3">
+                <div className="p-2.5 bg-rose-500 text-white rounded-xl shadow-xs shrink-0">
+                  <AlertTriangle className="h-6 w-6" />
+                </div>
+                <div>
+                  <div className="flex items-center gap-2">
+                    <h3 className="text-base sm:text-lg font-black tracking-tight uppercase font-mono">
+                      Operator Belum Mengisi FTW
+                    </h3>
+                    <span className="text-[11px] font-black uppercase bg-rose-500/20 text-rose-300 border border-rose-500/40 px-2 py-0.5 rounded-full font-mono">
+                      {pendingFtwOperators.length} Orang
+                    </span>
+                  </div>
+                  <p className="text-xs text-slate-400 mt-0.5 font-mono">
+                    Shift {selectedShift === 1 ? '1 (Siang)' : '2 (Malam)'} • {formatIndonesianDate(selectedDate)}
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => setIsPendingFtwModalOpen(false)}
+                className="p-2 text-slate-400 hover:text-white rounded-lg hover:bg-slate-800 transition cursor-pointer"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            {/* Modal Action Bar */}
+            <div className="p-4 bg-slate-50 border-b border-slate-200 flex flex-col sm:flex-row items-center justify-between gap-3">
+              <div className="relative w-full sm:w-72">
+                <Search className="absolute left-3 top-2.5 h-4 w-4 text-slate-400" />
+                <input
+                  type="text"
+                  placeholder="Cari nama, NRP, atau unit..."
+                  value={pendingSearchQuery}
+                  onChange={(e) => setPendingSearchQuery(e.target.value)}
+                  className="w-full pl-9 pr-3 py-1.5 bg-white border border-slate-300 rounded-lg text-xs font-medium text-slate-800 focus:outline-none focus:border-rose-500"
+                />
+              </div>
+
+              <div className="flex items-center gap-2 w-full sm:w-auto justify-end">
+                <button
+                  onClick={handleCopyPendingList}
+                  disabled={pendingFtwOperators.length === 0}
+                  className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-900 hover:bg-slate-800 disabled:opacity-50 text-white rounded-lg text-xs font-bold font-mono transition cursor-pointer shadow-xs"
+                >
+                  {copiedToast ? <Check className="h-3.5 w-3.5 text-emerald-400" /> : <Copy className="h-3.5 w-3.5 text-amber-400" />}
+                  <span>{copiedToast ? 'Tersalin ke Clipboard!' : 'Salin WhatsApp'}</span>
+                </button>
+
+                <button
+                  onClick={() => {
+                    setShowOnlyPendingFtw(prev => !prev);
+                    setIsPendingFtwModalOpen(false);
+                  }}
+                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold font-mono transition cursor-pointer shadow-xs border ${
+                    showOnlyPendingFtw
+                      ? 'bg-amber-500 text-slate-950 border-amber-600'
+                      : 'bg-white text-slate-700 border-slate-300 hover:bg-slate-100'
+                  }`}
+                >
+                  <Filter className="h-3.5 w-3.5" />
+                  <span>{showOnlyPendingFtw ? 'Reset Filter Board' : 'Isolir di Board'}</span>
+                </button>
+              </div>
+            </div>
+
+            {/* List Body */}
+            <div className="flex-1 overflow-y-auto p-4 sm:p-5">
+              {filteredPendingList.length === 0 ? (
+                <div className="py-12 text-center">
+                  <div className="inline-flex p-3 bg-emerald-100 text-emerald-700 rounded-full mb-3">
+                    <CheckCircle2 className="h-8 w-8" />
+                  </div>
+                  <h4 className="text-sm font-bold text-slate-800">
+                    {pendingFtwOperators.length === 0 
+                      ? 'Semua Operator Sudah Mengisi FTW!' 
+                      : 'Tidak ada operator yang cocok dengan pencarian'}
+                  </h4>
+                  <p className="text-xs text-slate-500 mt-1 max-w-sm mx-auto">
+                    {pendingFtwOperators.length === 0
+                      ? `Seluruh operator yang bertugas pada Shift ${selectedShift === 1 ? 'Siang' : 'Malam'} (${formatIndonesianDate(selectedDate)}) telah berstatus FIT.`
+                      : 'Coba ubah kata kunci pencarian Anda.'}
+                  </p>
+                </div>
+              ) : (
+                <div className="divide-y divide-slate-100 border border-slate-200 rounded-xl overflow-hidden bg-white shadow-xs">
+                  {filteredPendingList.map((op, idx) => (
+                    <div 
+                      key={op.id} 
+                      className="p-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-3 hover:bg-slate-50/80 transition"
+                    >
+                      <div className="flex items-center gap-3">
+                        <span className="font-mono text-xs font-bold text-slate-400 w-6 text-center">
+                          #{idx + 1}
+                        </span>
+                        <div>
+                          <div className="flex items-center gap-2">
+                            <h5 className="text-xs font-black text-slate-900 uppercase">
+                              {op.name}
+                            </h5>
+                            <span className="font-mono text-[10px] font-extrabold text-slate-600 bg-slate-100 px-1.5 py-0.5 rounded border border-slate-200">
+                              NRP: {op.nrp}
+                            </span>
+                          </div>
+                          <div className="flex flex-wrap items-center gap-2 text-[10px] text-slate-500 mt-1 font-mono">
+                            <span className="font-bold text-amber-700 bg-amber-50 px-1.5 py-0.2 rounded border border-amber-200">
+                              Unit: {op.unitCode} ({op.unitType})
+                            </span>
+                            <span>•</span>
+                            <span>{op.groupName}</span>
+                            <span>•</span>
+                            <span className="text-slate-600 font-semibold">{op.roleStatus}</span>
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="flex items-center gap-2 self-end sm:self-center shrink-0">
+                        <span className="px-2 py-1 rounded bg-slate-100 text-slate-600 border border-slate-200 text-[10px] font-black uppercase font-mono">
+                          ⚪ Belum Isi FTW
+                        </span>
+                        {op.settingId && (
+                          <button
+                            onClick={() => {
+                              setIsPendingFtwModalOpen(false);
+                              onNavigateToSetting(op.settingId!);
+                            }}
+                            className="px-2.5 py-1 bg-amber-50 hover:bg-amber-100 text-amber-900 border border-amber-300 rounded text-[10px] font-bold font-mono transition cursor-pointer"
+                          >
+                            Buka Unit
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {/* Modal Footer */}
+            <div className="p-3.5 bg-slate-50 border-t border-slate-200 flex items-center justify-between text-xs font-mono text-slate-500">
+              <span>Menampilkan {filteredPendingList.length} dari {pendingFtwOperators.length} operator</span>
+              <button
+                onClick={() => setIsPendingFtwModalOpen(false)}
+                className="px-4 py-1.5 bg-slate-200 hover:bg-slate-300 text-slate-800 font-bold rounded-lg text-xs transition cursor-pointer"
+              >
+                Tutup
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

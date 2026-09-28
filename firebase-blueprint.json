@@ -56,6 +56,23 @@
         "startSiangDate": { "type": "string" }
       },
       "required": ["id", "groupId", "unitId", "operator1Id", "operator2Id", "rosterPattern", "fixedOffDayOfWeek", "startSiangDate"]
+    },
+    "FTWRecord": {
+      "title": "FTWRecord",
+      "description": "Fit To Work record synced from FTW Online project or submitted directly",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "nik": { "type": "string" },
+        "name": { "type": "string" },
+        "date": { "type": "string" },
+        "shift": { "type": "number" },
+        "status": { "type": "string", "enum": ["fit", "unfit"] },
+        "submittedAt": { "type": "string" },
+        "notes": { "type": "string" },
+        "sourceProject": { "type": "string" }
+      },
+      "required": ["id", "nik", "date", "status"]
     }
   },
   "firestore": {
@@ -74,6 +91,10 @@
     "/unitSettings/{settingId}": {
       "schema": "UnitSetting",
       "description": "Rostering settings mapping operators to units"
+    },
+    "/ftwSubmissions/{ftwId}": {
+      "schema": "FTWRecord",
+      "description": "Collection of Fit To Work records mapped by operator NIK"
     }
   }
 }

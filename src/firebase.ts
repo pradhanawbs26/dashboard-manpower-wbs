@@ -92,7 +92,11 @@ export async function saveDocument(colPath: string, docId: string, data: any) {
     // Treat as pure JSON to strip undefined keys, which fails Firebase SDK
     const cleanData = JSON.parse(JSON.stringify(data));
     await setDoc(doc(db, colPath, docId), cleanData);
-  } catch (err) {
+  } catch (err: any) {
+    if (colPath === 'ftwSubmissions' || colPath === 'backupTransfers') {
+      console.warn(`[Firestore] Notice on ${colPath}/${docId}:`, err?.message || err);
+      return;
+    }
     handleFirestoreError(err, OperationType.WRITE, `${colPath}/${docId}`);
   }
 }
