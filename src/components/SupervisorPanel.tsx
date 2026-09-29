@@ -200,7 +200,7 @@ export default function SupervisorPanel({
     setIsPullingFtw(true);
     setPullFtwNotice(null);
     try {
-      const res = await fetchExternalFtw(externalCollectionName);
+      const res = await fetchExternalFtw(externalCollectionName, true);
       if (res.success) {
         if (onBulkSyncFtw && res.records.length > 0) {
           const incomingIds = new Set(res.records.map(r => r.id));
@@ -209,7 +209,7 @@ export default function SupervisorPanel({
         }
         setPullFtwNotice({
           type: 'success',
-          message: `Berhasil menarik ${res.records.length} data FTW dari Firebase ftw-wbs! (${res.totalRawDocs} dokumen terbaca). NIK langsung dipetakan ke settingan operator.`
+          message: `Berhasil menyinkronkan ${res.records.length} data FTW dari Firebase ftw-wbs! (${res.totalRawDocs} dokumen terbaca secara hemat kuota). NIK langsung dipetakan ke settingan operator.`
         });
       } else {
         setPullFtwNotice({

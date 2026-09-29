@@ -84,7 +84,7 @@ export default function FTWOnlineModal({
     setSyncStatusText(`Menghubungkan ke project "ftw-wbs" (koleksi: "${collectionName}")...`);
 
     try {
-      const result = await fetchExternalFtw(collectionName);
+      const result = await fetchExternalFtw(collectionName, true);
       if (result.success) {
         if (result.records.length > 0) {
           const existingIds = new Set(result.records.map(r => r.id));
@@ -93,7 +93,7 @@ export default function FTWOnlineModal({
           onBulkSync(merged);
 
           setSyncStatusText(
-            `Berhasil menarik ${result.records.length} data FTW dari Firebase ftw-wbs! Data langsung tersinkronkan ke Cloud Firestore manpower-wbs.`
+            `Berhasil menyinkronkan ${result.records.length} data FTW dari Firebase ftw-wbs! (${result.totalRawDocs} dokumen terbaca secara hemat kuota). Data tersimpan aman di cache & database lokal.`
           );
         } else {
           setSyncStatusText(
