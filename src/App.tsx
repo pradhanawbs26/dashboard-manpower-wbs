@@ -74,10 +74,12 @@ export default function App() {
     if (!saved) return INITIAL_FTW_RECORDS;
     try {
       const parsed: FTWRecord[] = JSON.parse(saved);
-      // Ensure seed records for 2026-09-26 are merged in if not already present
-      const savedIds = new Set(parsed.map(r => r.id));
-      const missingInitial = INITIAL_FTW_RECORDS.filter(r => !savedIds.has(r.id));
-      return [...parsed, ...missingInitial];
+      // Map initial records so any updated health/safety records immediately take effect over stale cache
+      const initialMap = new Map(INITIAL_FTW_RECORDS.map(r => [r.id, r]));
+      const updated = parsed.map(r => initialMap.get(r.id) || r);
+      const updatedIds = new Set(updated.map(r => r.id));
+      const missingInitial = INITIAL_FTW_RECORDS.filter(r => !updatedIds.has(r.id));
+      return [...updated, ...missingInitial];
     } catch {
       return INITIAL_FTW_RECORDS;
     }

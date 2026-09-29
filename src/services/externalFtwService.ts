@@ -290,12 +290,13 @@ export function parseExternalFtwDoc(docId: string, data: any, sourceCollection: 
     timeStr
   );
 
-  // 5. Determine Fit / Unfit status
-  let status: 'fit' | 'unfit' = 'fit';
 
+  // 5. Determine Fit / Conditional / Rest / Unfit status from official decision
+  let status: 'fit' | 'conditional' | 'rest' | 'unfit' = 'fit';
+
+  const rawDecision = String(data.finalDecision || data.decision || '').trim().toUpperCase();
+  const rawCategory = String(data.fatigueCategory || '').trim().toUpperCase();
   const rawStatus = String(
-    data.finalDecision ||
-    data.decision ||
     data.status || 
     data.hasil || 
     data.kondisi || 
@@ -304,44 +305,90 @@ export function parseExternalFtwDoc(docId: string, data: any, sourceCollection: 
     data.kesimpulan || 
     data.fitStatus || 
     data.fit_status || 
+    data.recommendation ||
+    data.rekomendasi ||
     ''
   ).toLowerCase();
 
-  const isUnfitExplicit = 
-    rawStatus.includes('unfit') || 
-    rawStatus.includes('tidak fit') || 
-    rawStatus.includes('un-fit') || 
-    rawStatus.includes('tidak laik') || 
-    rawStatus.includes('tidak layak') || 
-    rawStatus.includes('sakit') || 
-    rawStatus.includes('istirahat') || 
-    rawStatus.includes('demam') || 
-    rawStatus.includes('rekomendasi dokter');
-
-  const isFitExplicit = 
-    rawStatus.includes('fit') || 
-    rawStatus.includes('sehat') || 
-    rawStatus.includes('laik') || 
-    rawStatus.includes('layak') || 
-    rawStatus.includes('siap');
-
-  if (isUnfitExplicit) {
+  // Explicit decision from official FTW system (ftw-wbs)
+  if (rawDecision === 'UNFIT' || rawCategory === 'UNFIT' || rawCategory === 'REJECT' || rawStatus === 'unfit') {
     status = 'unfit';
-  } else if (isFitExplicit) {
+  } else if (
+    rawDecision === 'REST_BEFORE_WORK' || 
+    rawCategory === 'REST' || 
+    rawDecision.includes('REST') ||
+    rawStatus.includes('wajib istirahat') ||
+    rawStatus.includes('rest before work')
+  ) {
+    status = 'rest';
+  } else if (
+    rawDecision === 'FIT_CONDITIONAL' || 
+    rawCategory === 'LAPOR' || 
+    rawDecision.includes('CONDITIONAL') ||
+    rawStatus.includes('pengawasan')
+  ) {
+    status = 'conditional';
+  } else if (rawDecision === 'FIT' || rawCategory === 'NORMAL') {
     status = 'fit';
-  } else if (data.isFit === false || data.fit === false || data.kelayakan === false) {
-    status = 'unfit';
+  } else {
+    // String content fallback checks only when no explicit decision was provided
+    const isUnfit = 
+      rawStatus.includes('tidak boleh') || 
+      rawStatus.includes('dilarang') || 
+      rawStatus.includes('tidak fit') || 
+      rawStatus.includes('un-fit') || 
+      rawStatus.includes('tidak laik') || 
+      rawStatus.includes('tidak layak') || 
+      rawStatus.includes('sakit');
+
+    const isRest = 
+      rawStatus.includes('istirahat') || 
+      rawStatus.includes('rest');
+
+    const isConditional = 
+      rawStatus.includes('pengawasan');
+
+    if (isUnfit) {
+      status = 'unfit';
+    } else if (isRest) {
+      status = 'rest';
+    } else if (isConditional) {
+      status = 'conditional';
+    } else if (data.isFit === false || data.fit === false || data.kelayakan === false) {
+      status = 'unfit';
+    } else {
+      status = 'fit';
+    }
   }
 
-  // Check vitals if present
+  // Fatigue score and vitals check - only flag high fever as unfit if not already decided
+  const fatigueScore = Number(data.totalFatigueScore || data.fatigueScore || 0);
   const temp = parseFloat(data.suhu || data.temperature || data.suhu_tubuh || 0);
   const sleep = parseFloat(data.totalSleep12 || data.jam_tidur || data.sleepHours || data.tidur || 0);
   const sleep36 = parseFloat(data.totalSleep36 || data.sleepHours36 || 0);
-  if (temp >= 37.8) {
+
+  if (temp >= 38.0) {
     status = 'unfit';
   }
-  if (sleep > 0 && sleep < 5.0) {
-    status = 'unfit';
+
+  // Determine standard Indonesian recommendation label
+  let recommendation = 'FIT TO WORK';
+  if (status === 'unfit') {
+    recommendation = 'TIDAK BOLEH BEKERJA';
+  } else if (status === 'rest') {
+    recommendation = 'WAJIB ISTIRAHAT';
+  } else if (status === 'conditional') {
+    recommendation = 'PENGAWASAN KHUSUS';
+  }
+
+  // Determine standard risk aspects text
+  let riskAspects = 'No risk drugs';
+  if (data.consumesObat) {
+    riskAspects = 'Obat / Meds';
+  } else if (fatigueScore > 0) {
+    riskAspects = `Fatigue Score: ${fatigueScore}`;
+  } else if (data.hasPersonalProblem) {
+    riskAspects = 'Masalah Pribadi';
   }
 
   // 6. Build FTWRecord
@@ -352,6 +399,9 @@ export function parseExternalFtwDoc(docId: string, data: any, sourceCollection: 
     date: dateStr,
     shift,
     status,
+    finalDecision: rawDecision || (status === 'fit' ? 'FIT' : status === 'conditional' ? 'FIT_CONDITIONAL' : status === 'rest' ? 'REST_BEFORE_WORK' : 'UNFIT'),
+    fatigueScore: fatigueScore > 0 ? fatigueScore : undefined,
+    fatigueCategory: rawCategory || (status === 'fit' ? 'NORMAL' : status === 'conditional' ? 'LAPOR' : status === 'rest' ? 'REST' : 'UNFIT'),
     submittedAt: dateObj ? dateObj.toISOString() : (data.updatedAt || new Date().toISOString()),
     jam: timeStr || undefined,
     temperature: temp || 36.5,
@@ -359,8 +409,9 @@ export function parseExternalFtwDoc(docId: string, data: any, sourceCollection: 
     sleepHours: sleep || 7.5,
     sleepHours36: sleep36 || 14,
     department: data.dept || data.department || data.jabatan || '',
-    riskAspects: data.consumesObat ? 'Mengkonsumsi obat' : 'No risk drugs',
-    notes: data.catatan || data.notes || data.keluhan || (status === 'fit' ? 'Fit Bekerja' : 'Unfit / Kurang Sehat'),
+    riskAspects,
+    recommendation,
+    notes: data.catatan || data.notes || data.keluhan || (status === 'fit' ? 'Fit Bekerja' : status === 'conditional' ? 'Bekerja Dalam Pengawasan Khusus' : status === 'rest' ? 'Wajib Istirahat Sebelum Bekerja' : 'Dilarang Bekerja / Unfit'),
     sourceProject: `Firebase ftw-wbs [${sourceCollection}]`
   };
 

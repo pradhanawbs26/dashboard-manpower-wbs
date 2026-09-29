@@ -7,7 +7,7 @@ import React, { useState, useMemo } from 'react';
 import { HeavyUnit, Employee, UnitSetting, UnitGroup, BackupTransfer, FTWRecord } from '../types';
 import { calculateShift, formatIndonesianDate, formatIndonesianDayName } from '../utils/scheduler';
 import { getOperatorFTW, getFTWStyleConfig } from '../utils/ftwHelper';
-import { Search, Calendar, ShieldAlert, CheckCircle2, Moon, Sun, AlertTriangle, ListFilter, Users, HeartPulse, X, Copy, Check, Filter, Clock } from 'lucide-react';
+import { Search, Calendar, ShieldAlert, CheckCircle2, Moon, Sun, AlertTriangle, ListFilter, Users, HeartPulse, X, Copy, Check, Filter, Clock, AlertCircle } from 'lucide-react';
 import { motion } from 'motion/react';
 
 interface FieldMonitorProps {
@@ -726,6 +726,49 @@ export default function FieldMonitor({
     return list;
   }, [resolvedSettings, standbyMastersList, selectedDate, selectedShift, ftwRecords, groups]);
 
+  // FTW Summary breakdown for active operators on this shift
+  const ftwSummaryCounts = useMemo(() => {
+    let fit = 0;
+    let conditional = 0;
+    let rest = 0;
+    let unfit = 0;
+    let pending = 0;
+
+    resolvedSettings.forEach(item => {
+      if (item.activeRoleStatus !== 'OFF' && item.activeOperator) {
+        const ftw = getOperatorFTW(
+          item.activeOperator.nrp,
+          selectedDate,
+          selectedShift,
+          ftwRecords,
+          item.activeOperator.name
+        );
+        if (ftw.status === 'fit') fit++;
+        else if (ftw.status === 'conditional') conditional++;
+        else if (ftw.status === 'rest') rest++;
+        else if (ftw.status === 'unfit') unfit++;
+        else pending++;
+      }
+    });
+
+    standbyMastersList.forEach(m => {
+      const ftw = getOperatorFTW(
+        m.activeOperator.nrp,
+        selectedDate,
+        selectedShift,
+        ftwRecords,
+        m.activeOperator.name
+      );
+      if (ftw.status === 'fit') fit++;
+      else if (ftw.status === 'conditional') conditional++;
+      else if (ftw.status === 'rest') rest++;
+      else if (ftw.status === 'unfit') unfit++;
+      else pending++;
+    });
+
+    return { fit, conditional, rest, unfit, pending };
+  }, [resolvedSettings, standbyMastersList, selectedDate, selectedShift, ftwRecords]);
+
   // Filtered pending list for the modal search
   const filteredPendingList = useMemo(() => {
     if (!pendingSearchQuery.trim()) return pendingFtwOperators;
@@ -877,10 +920,12 @@ export default function FieldMonitor({
           <div className="flex items-center gap-2.5">
             <HeartPulse className="h-4 w-4 text-amber-500 shrink-0" />
             <span className="font-mono font-black uppercase text-[10px] tracking-wide text-amber-400">STATUS FTW ONLINE:</span>
-            <div className="flex items-center gap-1.5 font-mono text-[9.5px]">
-              <span className="px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 font-bold">🟢 Fit (Hijau)</span>
-              <span className="px-2 py-0.5 rounded bg-rose-500/20 text-rose-300 border border-rose-500/30 font-bold">🔴 Unfit (Merah)</span>
-              <span className="px-2 py-0.5 rounded bg-slate-700 text-slate-300 border border-slate-600 font-bold">⚪ Belum Isi (Abu)</span>
+            <div className="flex flex-wrap items-center gap-1.5 font-mono text-[9.5px]">
+              <span className="px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 font-bold">🟢 Fit ({ftwSummaryCounts.fit})</span>
+              <span className="px-2 py-0.5 rounded bg-amber-500/20 text-amber-300 border border-amber-500/30 font-bold">🟡 Pengawasan ({ftwSummaryCounts.conditional})</span>
+              <span className="px-2 py-0.5 rounded bg-rose-500/20 text-rose-300 border border-rose-500/30 font-bold">🔴 Wajib Istirahat ({ftwSummaryCounts.rest})</span>
+              <span className="px-2 py-0.5 rounded bg-rose-500/20 text-rose-300 border border-rose-500/30 font-bold">🔴 Unfit ({ftwSummaryCounts.unfit})</span>
+              <span className="px-2 py-0.5 rounded bg-slate-700 text-slate-300 border border-slate-600 font-bold">⚪ Belum Isi ({ftwSummaryCounts.pending})</span>
             </div>
           </div>
           {onOpenFTWModal && (
@@ -1025,7 +1070,9 @@ export default function FieldMonitor({
                    const isMasterGroup = setting.groupId === 'master';
                    const activeOpFTW = activeOperator ? getOperatorFTW(activeOperator.nrp, selectedDate, selectedShift, ftwRecords, activeOperator.name) : { status: 'pending' as const };
                    const ftwStyle = getFTWStyleConfig(activeOpFTW.status);
-                   const isUnfit = !isOff && activeOpFTW.status === 'unfit';
+                   const isUnfit = !isOff && (activeOpFTW.status === 'unfit');
+                   const isRest = !isOff && (activeOpFTW.status === 'rest');
+                   const isConditional = !isOff && (activeOpFTW.status === 'conditional');
 
                    return (
                      <motion.div
@@ -1034,8 +1081,12 @@ export default function FieldMonitor({
                        className={`select-none bg-white border rounded-lg shadow-sm flex flex-col overflow-hidden transition-all duration-200 cursor-pointer ${
                          isUnfit
                            ? 'border-rose-500 ring-2 ring-rose-500/50 bg-rose-50/20 shadow-md'
-                         : isUnitBroken
-                           ? 'border-rose-350 bg-rose-50/10 hover:border-rose-400 hover:shadow-md'
+                          : isRest
+                             ? 'border-rose-600 ring-2 ring-rose-500/50 bg-rose-50/25 shadow-md'
+                          : isConditional
+                            ? 'border-amber-400 ring-2 ring-amber-400/50 bg-amber-50/20 shadow-sm'
+                          : isUnitBroken
+                            ? 'border-orange-500 ring-2 ring-orange-500/60 bg-orange-50/20 shadow-md animate-pulse'
                          : isOff 
                            ? 'border-slate-200 bg-slate-50' 
                            : isMasterGroup
@@ -1057,7 +1108,7 @@ export default function FieldMonitor({
                        {/* Compact Unit Code Header */}
                        <div className={`py-1.5 px-2 text-center border-b font-extrabold font-mono tracking-wider text-xs ${
                          isUnitBroken
-                           ? 'bg-rose-600 border-rose-600 text-white font-black'
+                            ? 'bg-orange-600 border-orange-600 text-white font-black shadow-xs'
                          : isOff 
                            ? 'bg-slate-100 border-slate-200 text-slate-400' 
                            : isMasterGroup
@@ -1079,8 +1130,8 @@ export default function FieldMonitor({
 
                       {/* Full-width FTW / Status Banner across the card dimension */}
                       {isUnitBroken ? (
-                        <div className="py-1 px-1.5 text-center border-b font-black tracking-wider text-[10.5px] bg-rose-700 border-rose-800 text-white flex items-center justify-center gap-1 shadow-inner">
-                          <span>🚨 PERBAIKAN</span>
+                        <div className="py-1 px-1.5 text-center border-b font-black tracking-wider text-[10.5px] bg-orange-500 border-orange-600 text-white flex items-center justify-center gap-1 shadow-inner animate-pulse">
+                          <span className="font-black tracking-wide drop-shadow-xs">🚨 PERBAIKAN (BREAKDOWN)</span>
                         </div>
                       ) : isOff ? (
                         <div className="py-1 px-1.5 text-center border-b font-black tracking-wider text-[10px] bg-slate-200 border-slate-300 text-slate-500 flex items-center justify-center gap-1 shadow-inner">
@@ -1093,6 +1144,28 @@ export default function FieldMonitor({
                         >
                           <CheckCircle2 className="w-3.5 h-3.5 stroke-[2.5] shrink-0" />
                           <span className="font-extrabold uppercase">FIT</span>
+                          {activeOpFTW.record?.jam && (
+                            <span className="text-[9px] font-mono font-bold opacity-90 ml-0.5">({activeOpFTW.record.jam})</span>
+                          )}
+                        </div>
+                      ) : activeOpFTW.status === 'conditional' ? (
+                        <div 
+                          className="py-1 px-1.5 text-center border-b font-black tracking-wider text-[10.5px] bg-amber-400 border-amber-500 text-slate-950 flex items-center justify-center gap-1 shadow-inner"
+                          title={`Status FTW Online: Bekerja Dalam Pengawasan Khusus [${activeOperator.nrp}] - ${activeOpFTW.record?.notes || ''}`}
+                        >
+                          <AlertTriangle className="w-3.5 h-3.5 stroke-[2.5] text-slate-950 shrink-0" />
+                          <span className="font-black uppercase tracking-tight">PENGAWASAN KHUSUS</span>
+                          {activeOpFTW.record?.jam && (
+                            <span className="text-[9px] font-mono font-bold opacity-90 ml-0.5">({activeOpFTW.record.jam})</span>
+                          )}
+                        </div>
+                      ) : activeOpFTW.status === 'rest' ? (
+                        <div 
+                          className="py-1 px-1.5 text-center border-b font-black tracking-wider text-[10.5px] bg-rose-600 border-rose-700 text-white flex items-center justify-center gap-1 shadow-inner animate-pulse"
+                          title={`Status FTW Online: Wajib Istirahat Sebelum Bekerja [${activeOperator.nrp}] - ${activeOpFTW.record?.notes || ''}`}
+                        >
+                          <AlertTriangle className="w-3.5 h-3.5 stroke-[2.5] shrink-0" />
+                          <span className="font-black uppercase tracking-tight">WAJIB ISTIRAHAT</span>
                           {activeOpFTW.record?.jam && (
                             <span className="text-[9px] font-mono font-bold opacity-90 ml-0.5">({activeOpFTW.record.jam})</span>
                           )}
@@ -1119,13 +1192,13 @@ export default function FieldMonitor({
                        <div className="flex-1 p-2 flex flex-col justify-center items-center text-center">
                          {isUnitBroken ? (
                            <div className="py-2">
-                             <div className="inline-flex items-center gap-1 py-0.5 px-1.5 rounded-full text-[8.5px] font-extrabold uppercase bg-rose-100 text-rose-700 border border-rose-250 mb-1 font-mono tracking-wide">
+                             <div className="inline-flex items-center gap-1 py-0.5 px-1.5 rounded-full text-[8.5px] font-extrabold uppercase bg-orange-100 text-orange-800 border border-orange-300 mb-1 font-mono tracking-wide">
                                🚨 {unit.status.toUpperCase()}
                              </div>
-                             <p className="text-[11px] font-black text-rose-650 tracking-tight uppercase line-clamp-1 truncate">
+                             <p className="text-[11px] font-black text-orange-600 tracking-tight uppercase line-clamp-1 truncate">
                                UNIT PERBAIKAN
                              </p>
-                             <p className="text-[8px] text-rose-500 font-mono mt-0.5 max-w-full truncate font-extrabold">
+                             <p className="text-[8px] text-orange-600 font-mono mt-0.5 max-w-full truncate font-extrabold">
                                Operator Dipindah
                              </p>
                            </div>
@@ -1195,11 +1268,25 @@ export default function FieldMonitor({
                              
 
                              {activeOpFTW.status === 'unfit' && (
-                               <div className="mt-1 px-1.5 py-0.5 bg-rose-600 text-white rounded text-[7.5px] font-black uppercase tracking-tight flex items-center justify-center gap-1 shadow-xs animate-pulse">
-                                 <AlertTriangle className="h-2.5 w-2.5 shrink-0" />
-                                 <span>UNFIT - TUKAR MASTER</span>
-                               </div>
-                             )}
+                                <div className="mt-1 px-1.5 py-0.5 bg-rose-600 text-white rounded text-[7.5px] font-black uppercase tracking-tight flex items-center justify-center gap-1 shadow-xs animate-pulse">
+                                  <AlertTriangle className="h-2.5 w-2.5 shrink-0" />
+                                  <span>UNFIT - TUKAR MASTER</span>
+                                </div>
+                              )}
+
+                              {activeOpFTW.status === 'rest' && (
+                                <div className="mt-1 px-1.5 py-0.5 bg-rose-600 text-white rounded text-[7.5px] font-black uppercase tracking-tight flex items-center justify-center gap-1 shadow-xs animate-pulse">
+                                  <AlertTriangle className="h-2.5 w-2.5 shrink-0" />
+                                  <span>WAJIB ISTIRAHAT {activeOpFTW.record?.fatigueScore ? '(' + activeOpFTW.record.fatigueScore + ')' : ''}</span>
+                                </div>
+                              )}
+
+                              {activeOpFTW.status === 'conditional' && (
+                                <div className="mt-1 px-1.5 py-0.5 bg-amber-400 text-slate-950 rounded text-[7.5px] font-black uppercase tracking-tight flex items-center justify-center gap-1 shadow-xs border border-amber-500">
+                                  <AlertTriangle className="h-2.5 w-2.5 shrink-0" />
+                                  <span>PENGAWASAN KHUSUS {activeOpFTW.record?.fatigueScore ? '(' + activeOpFTW.record.fatigueScore + ')' : ''}</span>
+                                </div>
+                              )}
 
                              {isFilledByBreakdownRelocation && (
                                <div className={`mt-1.5 px-2 py-0.5 rounded text-[9px] font-black uppercase text-center flex items-center justify-center gap-1 shrink-0 border ${
@@ -1286,20 +1373,20 @@ export default function FieldMonitor({
                         layoutId={`unconfigured-card-${unit.id}`}
                         className={`select-none bg-white border rounded-lg shadow-sm flex flex-col overflow-hidden transition-all duration-200 ${
                           isBroken
-                            ? "border-rose-300 hover:border-rose-450 hover:shadow-md bg-rose-50/10"
+                            ? "border-orange-500 ring-2 ring-orange-500/60 bg-orange-50/25 shadow-md hover:border-orange-600"
                             : "border-amber-300 hover:border-amber-450 hover:shadow-md"
                         }`}
                       >
                         {/* Compact Unit Code Header of Unconfigured Tool */}
                         <div className={`py-1.5 px-2 text-center border-b font-extrabold font-mono tracking-wider text-xs text-white font-black ${
-                          isBroken ? "bg-rose-700 border-rose-700" : "bg-rose-600 border-rose-600"
+                          isBroken ? "bg-orange-500 border-orange-600 shadow-sm" : "bg-slate-600 border-slate-600"
                         }`}>
                           {unit.unitCode}
                         </div>
 
                         {/* Full-width status banner */}
                         {isBroken ? (
-                          <div className="py-1 px-1.5 text-center border-b font-black tracking-wider text-[10px] bg-rose-800 border-rose-900 text-white flex items-center justify-center gap-1 shadow-inner">
+                          <div className="py-1 px-1.5 text-center border-b font-black tracking-wider text-[10px] bg-orange-600 border-orange-700 text-white flex items-center justify-center gap-1 shadow-inner animate-pulse">
                             <AlertTriangle className="w-3.5 h-3.5 stroke-[2.5] shrink-0" />
                             <span>{isMaint ? "🛠️ MAINTENANCE" : "🚨 BREAKDOWN"}</span>
                           </div>
@@ -1315,14 +1402,14 @@ export default function FieldMonitor({
                           <div className="py-1">
                             {isBroken ? (
                               <>
-                                <div className="inline-flex items-center gap-0.5 py-0.5 px-1.5 rounded-full text-[8px] font-bold uppercase bg-rose-100 text-rose-700 border border-rose-200 mb-1 font-mono">
+                                <div className="inline-flex items-center gap-0.5 py-0.5 px-1.5 rounded-full text-[8px] font-bold uppercase bg-orange-100 text-orange-800 border border-orange-300 mb-1 font-mono">
                                   <AlertTriangle className="h-3 w-3 shrink-0" />
                                   UNIT NON-AKTIF
                                 </div>
-                                <p className="text-[11px] font-black text-rose-700 tracking-tight uppercase truncate">
+                                <p className="text-[11px] font-black text-orange-600 tracking-tight uppercase truncate">
                                   {isMaint ? "SEDANG SERVIS" : "UNIT PERBAIKAN"}
                                 </p>
-                                <p className="text-[8px] text-rose-500 font-mono mt-0.5 font-bold">
+                                <p className="text-[8px] text-orange-500 font-mono mt-0.5 font-bold">
                                   Alat Sedang Rusak
                                 </p>
                               </>
@@ -1350,7 +1437,7 @@ export default function FieldMonitor({
                           </span>
                           <span className={`shrink-0 font-extrabold text-[8px] px-1 py-0.5 rounded uppercase border ${
                             isBroken 
-                              ? "bg-rose-100 text-rose-700 border-rose-300" 
+                              ? "bg-orange-500 text-white font-bold border-orange-600 shadow-xs" 
                               : "bg-rose-50 text-rose-700 border-rose-200"
                           }`}>
                             {isBroken ? (isMaint ? "MAINTENANCE" : "BREAKDOWN") : "KOSONG"}
@@ -1397,6 +1484,28 @@ export default function FieldMonitor({
                           >
                             <CheckCircle2 className="w-3.5 h-3.5 stroke-[2.5] shrink-0" />
                             <span className="font-extrabold uppercase">FIT</span>
+                            {masterFtwTime && (
+                              <span className="text-[9px] font-mono font-bold opacity-90 ml-0.5">({masterFtwTime})</span>
+                            )}
+                          </div>
+                        ) : masterFtw.status === 'conditional' ? (
+                          <div 
+                            className="py-1 px-1.5 text-center border-b font-black tracking-wider text-[10.5px] bg-amber-400 border-amber-500 text-slate-950 flex items-center justify-center gap-1 shadow-inner"
+                            title={`Status FTW Online: Pengawasan Khusus [${m.activeOperator.nrp}]`}
+                          >
+                            <AlertTriangle className="w-3.5 h-3.5 stroke-[2.5] text-slate-950 shrink-0" />
+                            <span className="font-black uppercase tracking-tight">PENGAWASAN</span>
+                            {masterFtwTime && (
+                              <span className="text-[9px] font-mono font-bold opacity-90 ml-0.5">({masterFtwTime})</span>
+                            )}
+                          </div>
+                        ) : masterFtw.status === 'rest' ? (
+                          <div 
+                            className="py-1 px-1.5 text-center border-b font-black tracking-wider text-[10.5px] bg-rose-600 border-rose-700 text-white flex items-center justify-center gap-1 shadow-inner animate-pulse"
+                            title={`Status FTW Online: Wajib Istirahat [${m.activeOperator.nrp}]`}
+                          >
+                            <AlertTriangle className="w-3.5 h-3.5 stroke-[2.5] shrink-0" />
+                            <span className="font-black uppercase tracking-tight">WAJIB ISTIRAHAT</span>
                             {masterFtwTime && (
                               <span className="text-[9px] font-mono font-bold opacity-90 ml-0.5">({masterFtwTime})</span>
                             )}

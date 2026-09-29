@@ -110,6 +110,25 @@ export default function FTWOnlineModal({
     }
   };
 
+  // Summary Statistics for FTW Top Banner matching official format
+  const summaryStats = useMemo(() => {
+    const base = filterDate ? ftwRecords.filter(r => r.date === filterDate) : ftwRecords;
+    const total = base.length;
+    const conditional = base.filter(r => r.status === 'conditional').length;
+    const rest = base.filter(r => r.status === 'rest').length;
+    const unfit = base.filter(r => r.status === 'unfit').length;
+    const problem = conditional + rest + unfit;
+    const percent = total > 0 ? Math.round((problem / total) * 100) : 0;
+    return {
+      total,
+      problem,
+      percent,
+      conditional,
+      rest,
+      unfit
+    };
+  }, [ftwRecords, filterDate]);
+
   // Filtered logs for the FTW dashboard table
   const filteredRecords = useMemo(() => {
     return ftwRecords.filter(r => {
@@ -118,7 +137,11 @@ export default function FTWOnlineModal({
       // Shift filter
       if (filterShift !== 'all' && String(r.shift) !== filterShift) return false;
       // Status filter
-      if (filterStatus !== 'all' && r.status !== filterStatus) return false;
+      if (filterStatus === 'problem') {
+        if (r.status === 'fit') return false;
+      } else if (filterStatus !== 'all' && r.status !== filterStatus) {
+        return false;
+      }
       // Search
       if (searchQuery.trim()) {
         const q = searchQuery.toLowerCase();
@@ -129,7 +152,10 @@ export default function FTWOnlineModal({
       }
       return true;
     }).sort((a, b) => {
-      // Sort newest submission first
+      // Prioritize problematic (unfit, rest, conditional) records at the top if any
+      const weight = (s) => (s === 'unfit' ? 4 : s === 'rest' ? 3 : s === 'conditional' ? 2 : 1);
+      const diffWeight = weight(b.status) - weight(a.status);
+      if (diffWeight !== 0) return diffWeight;
       const timeA = a.submittedAt || a.jam || '';
       const timeB = b.submittedAt || b.jam || '';
       return timeB.localeCompare(timeA);
@@ -252,11 +278,19 @@ export default function FTWOnlineModal({
         }
 
         // Status
-        let status: 'fit' | 'unfit' = 'fit';
+        let status: 'fit' | 'conditional' | 'rest' | 'unfit' = 'fit';
+        let recommendation = 'FIT TO WORK';
         if (statusIdx >= 0 && cols[statusIdx]) {
           const stVal = cols[statusIdx].toLowerCase();
-          if (stVal.includes('unfit') || stVal.includes('tidak') || stVal.includes('sakit')) {
+          if (stVal.includes('tidak boleh') || stVal.includes('dilarang') || stVal.includes('unfit')) {
             status = 'unfit';
+            recommendation = 'TIDAK BOLEH BEKERJA';
+          } else if (stVal.includes('istirahat') || stVal.includes('rest')) {
+            status = 'rest';
+            recommendation = 'WAJIB ISTIRAHAT';
+          } else if (stVal.includes('pengawasan') || stVal.includes('conditional')) {
+            status = 'conditional';
+            recommendation = 'PENGAWASAN KHUSUS';
           }
         }
 
@@ -275,7 +309,7 @@ export default function FTWOnlineModal({
           sleepHours36: sleepHours * 2.1,
           department: matchedEmp?.specializations?.[0] ? `${matchedEmp.specializations[0]} • CY & PORT OPERATION` : 'CY & PORT OPERATION',
           riskAspects: 'No risk drugs',
-          recommendation: status === 'fit' ? 'FIT TO WORK' : 'UNFIT',
+          recommendation,
           notes: `Impor Spreadsheet CSV (${recordDate})`,
           sourceProject: 'Spreadsheet Integration'
         });
@@ -453,6 +487,67 @@ export default function FTWOnlineModal({
           {activeTab === 'dashboard_logs' && (
             <div className="space-y-4">
               
+              {/* 5 Top Summary Cards Matching Screenshot */}
+              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
+                {/* 1. TOTAL PENILAIAN */}
+                <div className="bg-white p-3.5 rounded-xl border border-slate-200 shadow-2xs text-center flex flex-col justify-center">
+                  <span className="text-[10px] font-black uppercase text-slate-500 tracking-wider">TOTAL PENILAIAN</span>
+                  <span className="text-2xl sm:text-3xl font-black text-slate-900 mt-1">{summaryStats.total}</span>
+                  <span className="text-[10px] font-bold text-slate-400 mt-0.5 uppercase tracking-wider">LAPORAN</span>
+                </div>
+
+                {/* 2. BERMASALAH */}
+                <div className="bg-rose-50/40 p-3.5 rounded-xl border border-rose-200 shadow-2xs text-center flex flex-col justify-center">
+                  <span className="text-[10px] font-black uppercase text-rose-700 tracking-wider flex items-center justify-center gap-1">
+                    <AlertTriangle className="h-3 w-3" /> BERMASALAH
+                  </span>
+                  <span className="text-2xl sm:text-3xl font-black text-rose-700 mt-1">{summaryStats.problem}</span>
+                  <span className="text-[10px] font-bold text-rose-600 mt-0.5 uppercase tracking-wide">({summaryStats.percent}%) KURANG FIT</span>
+                </div>
+
+                {/* 3. PENGAWASAN KHUSUS */}
+                <div 
+                  onClick={() => setFilterStatus(filterStatus === 'conditional' ? 'all' : 'conditional')}
+                  className={`p-3.5 rounded-xl border shadow-2xs text-center flex flex-col justify-center cursor-pointer transition ${
+                    filterStatus === 'conditional' ? 'bg-amber-100 border-amber-400 ring-2 ring-amber-400' : 'bg-amber-50/50 border-amber-300 hover:bg-amber-100/60'
+                  }`}
+                >
+                  <span className="text-[10px] font-black uppercase text-amber-900 tracking-wider flex items-center justify-center gap-1">
+                    <span className="w-2 h-2 rounded-full bg-amber-500 inline-block"></span> PENGAWASAN KHUSUS
+                  </span>
+                  <span className="text-2xl sm:text-3xl font-black text-amber-900 mt-1">{summaryStats.conditional}</span>
+                  <span className="text-[9px] font-bold text-amber-700 mt-0.5 uppercase tracking-tight">BEKERJA DALAM PENGAWASAN KHUSUS</span>
+                </div>
+
+                {/* 4. WAJIB ISTIRAHAT */}
+                <div 
+                  onClick={() => setFilterStatus(filterStatus === 'rest' ? 'all' : 'rest')}
+                  className={`p-3.5 rounded-xl border shadow-2xs text-center flex flex-col justify-center cursor-pointer transition ${
+                    filterStatus === 'rest' ? 'bg-orange-100 border-orange-400 ring-2 ring-orange-400' : 'bg-orange-50/50 border-orange-300 hover:bg-orange-100/60'
+                  }`}
+                >
+                  <span className="text-[10px] font-black uppercase text-orange-900 tracking-wider flex items-center justify-center gap-1">
+                    <span className="w-2 h-2 rounded-full bg-orange-500 inline-block"></span> WAJIB ISTIRAHAT
+                  </span>
+                  <span className="text-2xl sm:text-3xl font-black text-orange-900 mt-1">{summaryStats.rest}</span>
+                  <span className="text-[9px] font-bold text-orange-700 mt-0.5 uppercase tracking-tight">WAJIB ISTIRAHAT SEBELUM BEKERJA</span>
+                </div>
+
+                {/* 5. TIDAK BOLEH BEKERJA */}
+                <div 
+                  onClick={() => setFilterStatus(filterStatus === 'unfit' ? 'all' : 'unfit')}
+                  className={`p-3.5 rounded-xl border shadow-2xs text-center flex flex-col justify-center col-span-2 sm:col-span-1 cursor-pointer transition ${
+                    filterStatus === 'unfit' ? 'bg-rose-100 border-rose-400 ring-2 ring-rose-400' : 'bg-rose-50/50 border-rose-300 hover:bg-rose-100/60'
+                  }`}
+                >
+                  <span className="text-[10px] font-black uppercase text-rose-900 tracking-wider flex items-center justify-center gap-1">
+                    <span className="w-2 h-2 rounded-full bg-rose-600 inline-block"></span> TIDAK BOLEH BEKERJA
+                  </span>
+                  <span className="text-2xl sm:text-3xl font-black text-rose-900 mt-1">{summaryStats.unfit}</span>
+                  <span className="text-[9px] font-bold text-rose-700 mt-0.5 uppercase tracking-tight">DILARANG KERAS BEKERJA HARIAN</span>
+                </div>
+              </div>
+
               {/* Header Box matching screenshot */}
               <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-xs flex flex-col md:flex-row md:items-center justify-between gap-4">
                 <div className="flex items-center gap-3">
@@ -462,7 +557,7 @@ export default function FTWOnlineModal({
                   <div>
                     <div className="flex items-center gap-2.5">
                       <h4 className="font-black text-slate-900 text-sm sm:text-base uppercase tracking-tight font-mono">
-                        SEMUA LAPORAN FATIGUE TERFILTER
+                        {filterStatus === 'problem' ? 'DAFTAR KARYAWAN KURANG FIT TERDETEKSI' : 'SEMUA LAPORAN FATIGUE TERFILTER'}
                       </h4>
                       <span className="bg-slate-900 text-white font-mono text-xs font-black px-2.5 py-0.5 rounded-full shadow-2xs">
                         {filteredRecords.length} Logs Match
@@ -528,8 +623,11 @@ export default function FTWOnlineModal({
                     className="w-full bg-slate-50 border border-slate-300 rounded-lg px-2.5 py-1.5 font-bold text-slate-800 focus:outline-none focus:border-amber-500"
                   >
                     <option value="all">Semua Status</option>
-                    <option value="fit">FIT TO WORK</option>
-                    <option value="unfit">UNFIT / TIDAK FIT</option>
+                    <option value="problem">⚠️ Hanya Kurang Fit ({summaryStats.problem})</option>
+                    <option value="fit">🟢 FIT TO WORK</option>
+                    <option value="conditional">🟡 PENGAWASAN KHUSUS ({summaryStats.conditional})</option>
+                    <option value="rest">🟠 WAJIB ISTIRAHAT ({summaryStats.rest})</option>
+                    <option value="unfit">🔴 TIDAK BOLEH BEKERJA ({summaryStats.unfit})</option>
                   </select>
                 </div>
 
@@ -629,7 +727,7 @@ export default function FTWOnlineModal({
                               {/* 4. Detail Jadwal Tidur */}
                               <td className="py-3.5 px-4 text-xs font-mono">
                                 <div className="font-bold text-slate-800">
-                                  12 Jm: <span className="font-black text-slate-900">{record.sleepHours || 7} Jam</span>
+                                  12 Jm: <span className={record.sleepHours && record.sleepHours < 6 ? 'font-black text-rose-600' : 'font-black text-slate-900'}>{record.sleepHours || 7} Jam</span>
                                 </div>
                                 <div className="text-slate-500 text-[11px] mt-0.5">
                                   36 Jm: <span className="font-medium text-slate-700">{record.sleepHours36 || ((record.sleepHours || 7) * 2.1).toFixed(1)} Jam</span>
@@ -638,23 +736,50 @@ export default function FTWOnlineModal({
 
                               {/* 5. Aspek Risiko */}
                               <td className="py-3.5 px-4 text-xs">
-                                <span className="text-emerald-700 font-bold flex items-center gap-1">
-                                  <Check className="h-3.5 w-3.5 text-emerald-600" />
-                                  <span>{record.riskAspects || 'No risk drugs'}</span>
-                                </span>
+                                {record.fatigueScore && record.fatigueScore >= 10 ? (
+                                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded border border-orange-300 bg-orange-50 text-orange-900 font-bold text-[10px]">
+                                    <span>⚡ Fatigue Score: {record.fatigueScore}</span>
+                                  </span>
+                                ) : record.fatigueScore && record.fatigueScore >= 5 ? (
+                                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded border border-amber-300 bg-amber-50 text-amber-900 font-bold text-[10px]">
+                                    <span>⚡ Fatigue Score: {record.fatigueScore}</span>
+                                  </span>
+                                ) : record.riskAspects && (record.riskAspects.toLowerCase().includes('obat') || record.riskAspects.toLowerCase().includes('meds')) ? (
+                                  <div className="space-y-0.5">
+                                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded border border-amber-300 bg-amber-50 text-amber-900 font-bold text-[10px]">
+                                      <span>💊 Obat / Meds</span>
+                                    </span>
+                                    <div className="text-[10px] text-emerald-700 font-medium">✓ No risk drugs</div>
+                                  </div>
+                                ) : (
+                                  <span className="text-emerald-700 font-bold flex items-center gap-1 text-[11px]">
+                                    <Check className="h-3.5 w-3.5 text-emerald-600" />
+                                    <span>{record.riskAspects || 'No risk drugs'}</span>
+                                  </span>
+                                )}
                               </td>
 
                               {/* 6. Rekomendasi Fit */}
                               <td className="py-3.5 px-4 text-center whitespace-nowrap">
-                                {isFit ? (
+                                {record.status === 'conditional' ? (
+                                  <span className="inline-flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-full bg-amber-50 border border-amber-400 text-amber-950 font-black text-[11px] font-mono shadow-2xs">
+                                    <span className="w-2 h-2 rounded-full bg-amber-500" />
+                                    <span>PENGAWASAN KHUSUS</span>
+                                  </span>
+                                ) : record.status === 'rest' ? (
+                                  <span className="inline-flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-full bg-orange-100 border border-orange-400 text-orange-950 font-black text-[11px] font-mono shadow-2xs animate-pulse">
+                                    <span className="w-2 h-2 rounded-full bg-orange-600" />
+                                    <span>WAJIB ISTIRAHAT</span>
+                                  </span>
+                                ) : record.status === 'unfit' ? (
+                                  <span className="inline-flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-full bg-rose-100 border border-rose-400 text-rose-950 font-black text-[11px] font-mono shadow-2xs animate-pulse">
+                                    <span className="w-2 h-2 rounded-full bg-rose-600" />
+                                    <span>TIDAK BOLEH BEKERJA</span>
+                                  </span>
+                                ) : (
                                   <span className="inline-flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-full bg-emerald-100/90 border border-emerald-400 text-emerald-950 font-black text-[11px] font-mono shadow-2xs">
                                     <span className="w-2 h-2 rounded-full bg-emerald-500" />
                                     <span>FIT TO WORK</span>
-                                  </span>
-                                ) : (
-                                  <span className="inline-flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-full bg-rose-100 border border-rose-400 text-rose-950 font-black text-[11px] font-mono shadow-2xs">
-                                    <span className="w-2 h-2 rounded-full bg-rose-600" />
-                                    <span>UNFIT</span>
                                   </span>
                                 )}
                               </td>

@@ -189,7 +189,8 @@ export function getOperatorFTW(
   }
 
   // Normalize operator name for secondary fallback matching
-  const cleanOpName = operatorName ? operatorName.trim().toUpperCase() : '';
+  const cleanOpName = operatorName ? operatorName.trim().toUpperCase().replace(/\s+/g, ' ') : '';
+  const opCoreName = cleanOpName.replace(/^(M\.|MUHAMMAD|MOHD|MD)\s+/i, '').trim();
 
   // Filter candidates matching this operator NIK (or Name) and target date
   const candidateRecords = records.filter(r => {
@@ -200,11 +201,21 @@ export function getOperatorFTW(
     // 1. Primary match by NIK
     if (nik && isNikMatch(r.nik, nik)) return true;
 
-    // 2. Secondary match by Operator Name if NIK didn't match or was formatted differently
+    // 2. Specific aliases for Robiansyah / Rifky
+    if (nik === '246900028' && r.nik === '246900003' && cleanOpName.includes('ROBIANSYAH')) return true;
+    if (nik === '246900003' && r.nik === '246900028' && cleanOpName.includes('ROBIANSYAH')) return true;
+
+    // 3. Secondary match by Operator Name if NIK didn't match or was formatted differently
     if (cleanOpName && r.name) {
-      const recName = r.name.trim().toUpperCase();
-      if (recName === cleanOpName || recName.includes(cleanOpName) || cleanOpName.includes(recName)) {
-        return true;
+      const recName = r.name.trim().toUpperCase().replace(/\s+/g, ' ');
+      if (recName === cleanOpName) return true;
+      if (recName.includes(cleanOpName) || cleanOpName.includes(recName)) return true;
+      
+      if (opCoreName && opCoreName.length >= 4) {
+        const recCore = recName.replace(/^(M\.|MUHAMMAD|MOHD|MD)\s+/i, '').trim();
+        if (recCore === opCoreName || recName.includes(opCoreName) || opCoreName.includes(recCore)) {
+          return true;
+        }
       }
     }
 
@@ -229,16 +240,26 @@ export function getOperatorFTW(
     return recShift === shift;
   });
 
-  // 2. If no exact shift match, but the operator DID fill FTW on this date:
-  // An operator who did their medical FTW inspection today is FIT to work!
-  // Don't mark them as "Belum Isi" if they already submitted on this date.
-  if (!matched && sorted.length > 0) {
-    matched = sorted[0];
+  // 2. If no record for exact shift, check if operator has an active UNFIT or WAJIB ISTIRAHAT today
+  if (!matched) {
+    const criticalRisk = sorted.find(r => r.status === 'unfit' || r.status === 'rest');
+    if (criticalRisk) {
+      matched = criticalRisk;
+    } else if (sorted.length > 0) {
+      matched = sorted[0];
+    }
   }
 
   if (matched) {
+    const rawStatus = (matched.status as any);
+    let resolvedStatus: FTWStatus = 'fit';
+    if (rawStatus === 'unfit') resolvedStatus = 'unfit';
+    else if (rawStatus === 'rest') resolvedStatus = 'rest';
+    else if (rawStatus === 'conditional') resolvedStatus = 'conditional';
+    else resolvedStatus = 'fit';
+
     return {
-      status: matched.status === 'unfit' ? 'unfit' : 'fit',
+      status: resolvedStatus,
       record: matched
     };
   }
@@ -257,12 +278,15 @@ export interface FTWStyleConfig {
   boxBg: string;
   dotColor: string;
   indicatorText: string;
-  iconType: 'fit' | 'unfit' | 'pending';
+  bannerBg: string;
+  iconType: 'fit' | 'conditional' | 'rest' | 'unfit' | 'pending';
 }
 
 /**
  * Visual styling configuration corresponding to the user's color specifications:
  * - Fit -> Label Hijau (Emerald/Green)
+ * - Pengawasan Khusus -> Label Kuning (Amber/Yellow)
+ * - Wajib Istirahat -> Label Oranye (Orange)
  * - Unfit -> Label Merah (Rose/Red)
  * - Belum Mengisi -> Label Abu-abu (Gray/Slate)
  */
@@ -274,27 +298,61 @@ export function getFTWStyleConfig(status: FTWStatus): FTWStyleConfig {
         label: 'FIT',
         badgeLabel: 'FIT TO WORK',
         description: 'Operator Fit Bekerja',
-        badgeBg: 'bg-emerald-500 text-white font-black shadow-sm',
+        badgeBg: 'bg-emerald-600 text-white font-black shadow-sm',
         chipBg: 'bg-emerald-50 text-emerald-800 border-emerald-300',
         boxBorder: 'border-emerald-500 ring-1 ring-emerald-500/20',
         boxBg: 'bg-emerald-50/20',
         dotColor: 'bg-emerald-500',
         indicatorText: 'text-emerald-700',
+        bannerBg: 'bg-emerald-600 border-emerald-700 text-white',
         iconType: 'fit'
+      };
+
+    case 'conditional':
+      return {
+        status: 'conditional',
+        label: 'PENGAWASAN',
+        badgeLabel: 'PENGAWASAN KHUSUS',
+        description: 'Bekerja Dalam Pengawasan Khusus',
+        badgeBg: 'bg-amber-400 text-slate-950 font-black shadow-sm',
+        chipBg: 'bg-amber-50 text-amber-900 border-amber-300 font-bold',
+        boxBorder: 'border-amber-400 ring-2 ring-amber-400/40',
+        boxBg: 'bg-amber-50/30',
+        dotColor: 'bg-amber-500',
+        indicatorText: 'text-amber-800',
+        bannerBg: 'bg-amber-400 border-amber-500 text-slate-950 font-black',
+        iconType: 'conditional'
+      };
+
+    case 'rest':
+      return {
+        status: 'rest',
+        label: 'WAJIB ISTIRAHAT',
+        badgeLabel: 'WAJIB ISTIRAHAT',
+        description: 'Wajib Istirahat Sebelum Bekerja',
+        badgeBg: 'bg-rose-600 text-white font-black shadow-sm animate-pulse',
+        chipBg: 'bg-rose-50 text-rose-950 border-rose-300 font-bold',
+        boxBorder: 'border-rose-500 ring-2 ring-rose-500/50',
+        boxBg: 'bg-rose-50/30',
+        dotColor: 'bg-rose-600',
+        indicatorText: 'text-rose-700',
+        bannerBg: 'bg-rose-600 border-rose-700 text-white font-black animate-pulse',
+        iconType: 'rest'
       };
 
     case 'unfit':
       return {
         status: 'unfit',
         label: 'UNFIT',
-        badgeLabel: 'TIDAK FIT',
-        description: 'Operator Unfit (Butuh Pengganti)',
+        badgeLabel: 'TIDAK BOLEH BEKERJA',
+        description: 'Operator Unfit (Dilarang Bekerja)',
         badgeBg: 'bg-rose-600 text-white font-black shadow-sm animate-pulse',
         chipBg: 'bg-rose-50 text-rose-800 border-rose-300 font-bold',
         boxBorder: 'border-rose-500 ring-2 ring-rose-500/40',
         boxBg: 'bg-rose-50/30',
         dotColor: 'bg-rose-600',
         indicatorText: 'text-rose-700',
+        bannerBg: 'bg-rose-600 border-rose-700 text-white font-black',
         iconType: 'unfit'
       };
 
@@ -311,6 +369,7 @@ export function getFTWStyleConfig(status: FTWStatus): FTWStyleConfig {
         boxBg: 'bg-slate-50/50',
         dotColor: 'bg-slate-400',
         indicatorText: 'text-slate-500',
+        bannerBg: 'bg-slate-500 border-slate-600 text-white',
         iconType: 'pending'
       };
   }

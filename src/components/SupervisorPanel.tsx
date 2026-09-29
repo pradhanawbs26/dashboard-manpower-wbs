@@ -1747,13 +1747,17 @@ export default function SupervisorPanel({
                           {employees.map(emp => {
                             const ftwS1 = getOperatorFTW(emp.nrp, selectedDate, 1, ftwRecords);
                             const ftwS2 = getOperatorFTW(emp.nrp, selectedDate, 2, ftwRecords);
-                            const tag = ftwS1.status === 'fit' 
-                              ? '🟢 Fit (Shift 1)' 
-                              : ftwS2.status === 'fit' 
-                                ? '🟢 Fit (Shift 2)' 
-                                : ftwS1.status === 'unfit' || ftwS2.status === 'unfit' 
-                                  ? '🔴 Unfit' 
-                                  : '⚪ Belum FTW';
+                            const tag = ftwS1.status === 'unfit' || ftwS2.status === 'unfit'
+                              ? '🔴 Unfit'
+                              : ftwS1.status === 'rest' || ftwS2.status === 'rest'
+                                ? '🟠 Istirahat'
+                                : ftwS1.status === 'conditional' || ftwS2.status === 'conditional'
+                                  ? '🟡 Pengawasan'
+                                  : ftwS1.status === 'fit' 
+                                    ? '🟢 Fit (Shift 1)' 
+                                    : ftwS2.status === 'fit' 
+                                      ? '🟢 Fit (Shift 2)' 
+                                      : '⚪ Belum FTW';
                             return (
                               <option key={emp.id} value={emp.id} disabled={emp.id === setOp2Id}>
                                 {emp.name} [NIK: {emp.nrp}] - {tag} (Roster {emp.rosterPattern})
@@ -1776,13 +1780,17 @@ export default function SupervisorPanel({
                           {employees.map(emp => {
                             const ftwS1 = getOperatorFTW(emp.nrp, selectedDate, 1, ftwRecords);
                             const ftwS2 = getOperatorFTW(emp.nrp, selectedDate, 2, ftwRecords);
-                            const tag = ftwS1.status === 'fit' 
-                              ? '🟢 Fit (Shift 1)' 
-                              : ftwS2.status === 'fit' 
-                                ? '🟢 Fit (Shift 2)' 
-                                : ftwS1.status === 'unfit' || ftwS2.status === 'unfit' 
-                                  ? '🔴 Unfit' 
-                                  : '⚪ Belum FTW';
+                            const tag = ftwS1.status === 'unfit' || ftwS2.status === 'unfit'
+                              ? '🔴 Unfit'
+                              : ftwS1.status === 'rest' || ftwS2.status === 'rest'
+                                ? '🟠 Istirahat'
+                                : ftwS1.status === 'conditional' || ftwS2.status === 'conditional'
+                                  ? '🟡 Pengawasan'
+                                  : ftwS1.status === 'fit' 
+                                    ? '🟢 Fit (Shift 1)' 
+                                    : ftwS2.status === 'fit' 
+                                      ? '🟢 Fit (Shift 2)' 
+                                      : '⚪ Belum FTW';
                             return (
                               <option key={emp.id} value={emp.id} disabled={emp.id === setOp1Id}>
                                 {emp.name} [NIK: {emp.nrp}] - {tag} (Roster {emp.rosterPattern})

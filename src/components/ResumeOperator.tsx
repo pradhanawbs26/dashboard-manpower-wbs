@@ -76,6 +76,8 @@ export default function ResumeOperator({
     readyCount,
     breakdownCount,
     ftwFitCount,
+    ftwConditionalCount,
+    ftwRestCount,
     ftwUnfitCount,
     ftwPendingCount
   } = useMemo(() => {
@@ -446,6 +448,8 @@ export default function ResumeOperator({
 
     // FTW Online Status Counts for Active Operators
     let ftwFitCount = 0;
+    let ftwConditionalCount = 0;
+    let ftwRestCount = 0;
     let ftwUnfitCount = 0;
     let ftwPendingCount = 0;
 
@@ -453,6 +457,8 @@ export default function ResumeOperator({
       if (item.activeOperator) {
         const ftw = getOperatorFTW(item.activeOperator.nrp, selectedDate, selectedShift, ftwRecords, item.activeOperator.name);
         if (ftw.status === 'fit') ftwFitCount++;
+        else if (ftw.status === 'conditional') ftwConditionalCount++;
+        else if (ftw.status === 'rest') ftwRestCount++;
         else if (ftw.status === 'unfit') ftwUnfitCount++;
         else ftwPendingCount++;
       }
@@ -467,6 +473,8 @@ export default function ResumeOperator({
       readyCount: readyStats,
       breakdownCount: breakdownStats,
       ftwFitCount,
+      ftwConditionalCount,
+      ftwRestCount,
       ftwUnfitCount,
       ftwPendingCount
     };
@@ -641,24 +649,38 @@ export default function ResumeOperator({
 
           <div className="flex flex-wrap items-center gap-3 w-full md:w-auto">
             {/* Fit count */}
-            <div className="flex items-center gap-2 bg-emerald-950/60 border border-emerald-600/40 px-3 py-1.5 rounded-lg">
-              <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse"></span>
-              <span className="text-xs font-black text-emerald-300 font-mono">FIT (Hijau):</span>
-              <span className="text-base font-black text-white font-mono">{ftwFitCount}</span>
+            <div className="flex items-center gap-2 bg-emerald-950/60 border border-emerald-600/40 px-2.5 py-1 rounded-lg">
+              <span className="w-2 h-2 rounded-full bg-emerald-400"></span>
+              <span className="text-xs font-black text-emerald-300 font-mono">FIT:</span>
+              <span className="text-sm font-black text-white font-mono">{ftwFitCount}</span>
+            </div>
+
+            {/* Conditional count */}
+            <div className="flex items-center gap-2 bg-amber-950/60 border border-amber-500/40 px-2.5 py-1 rounded-lg">
+              <span className="w-2 h-2 rounded-full bg-amber-400"></span>
+              <span className="text-xs font-black text-amber-300 font-mono">PENGAWASAN:</span>
+              <span className="text-sm font-black text-white font-mono">{ftwConditionalCount}</span>
+            </div>
+
+            {/* Rest count */}
+            <div className="flex items-center gap-2 bg-orange-950/60 border border-orange-500/40 px-2.5 py-1 rounded-lg">
+              <span className="w-2 h-2 rounded-full bg-orange-400"></span>
+              <span className="text-xs font-black text-orange-300 font-mono">ISTIRAHAT:</span>
+              <span className="text-sm font-black text-white font-mono">{ftwRestCount}</span>
             </div>
 
             {/* Unfit count */}
-            <div className="flex items-center gap-2 bg-rose-950/60 border border-rose-600/40 px-3 py-1.5 rounded-lg">
-              <span className="w-2.5 h-2.5 rounded-full bg-rose-400 animate-pulse"></span>
-              <span className="text-xs font-black text-rose-300 font-mono">UNFIT (Merah):</span>
-              <span className="text-base font-black text-white font-mono">{ftwUnfitCount}</span>
+            <div className="flex items-center gap-2 bg-rose-950/60 border border-rose-600/40 px-2.5 py-1 rounded-lg">
+              <span className="w-2 h-2 rounded-full bg-rose-400 animate-pulse"></span>
+              <span className="text-xs font-black text-rose-300 font-mono">UNFIT:</span>
+              <span className="text-sm font-black text-white font-mono">{ftwUnfitCount}</span>
             </div>
 
             {/* Pending count */}
-            <div className="flex items-center gap-2 bg-slate-800 border border-slate-700 px-3 py-1.5 rounded-lg">
-              <span className="w-2.5 h-2.5 rounded-full bg-slate-400"></span>
-              <span className="text-xs font-black text-slate-300 font-mono">BELUM ISI (Abu):</span>
-              <span className="text-base font-black text-white font-mono">{ftwPendingCount}</span>
+            <div className="flex items-center gap-2 bg-slate-800 border border-slate-700 px-2.5 py-1 rounded-lg">
+              <span className="w-2 h-2 rounded-full bg-slate-400"></span>
+              <span className="text-xs font-black text-slate-300 font-mono">BELUM ISI:</span>
+              <span className="text-sm font-black text-white font-mono">{ftwPendingCount}</span>
             </div>
 
             {onOpenFTWModal && (
@@ -798,8 +820,10 @@ export default function ResumeOperator({
                 Pengecekan kesiapan alat dan kelaikan fisik operator (Fit to Work)
               </p>
             </div>
-            <div className="flex items-center gap-2 text-xs font-mono">
+            <div className="flex flex-wrap items-center gap-1.5 text-xs font-mono">
               <span className="px-2 py-0.5 rounded bg-emerald-100 text-emerald-800 font-bold border border-emerald-300">🟢 Fit ({ftwFitCount})</span>
+              <span className="px-2 py-0.5 rounded bg-amber-100 text-amber-900 font-bold border border-amber-300">🟡 Pengawasan ({ftwConditionalCount})</span>
+              <span className="px-2 py-0.5 rounded bg-rose-100 text-rose-800 font-bold border border-rose-300">🔴 Istirahat ({ftwRestCount})</span>
               <span className="px-2 py-0.5 rounded bg-rose-100 text-rose-800 font-bold border border-rose-300">🔴 Unfit ({ftwUnfitCount})</span>
               <span className="px-2 py-0.5 rounded bg-slate-200 text-slate-700 font-bold border border-slate-300">⚪ Belum Isi ({ftwPendingCount})</span>
             </div>
@@ -829,7 +853,7 @@ export default function ResumeOperator({
                     <tr 
                       key={item.setting.id || idx}
                       className={`hover:bg-slate-50/80 transition-colors ${
-                        ftw.status === 'unfit' ? 'bg-rose-50/40' : ''
+                        ftw.status === 'unfit' || ftw.status === 'rest' ? 'bg-rose-50/40' : ftw.status === 'conditional' ? 'bg-amber-50/30' : ''
                       }`}
                     >
                       <td className="p-3 font-mono font-black text-slate-800">
@@ -842,7 +866,7 @@ export default function ResumeOperator({
                         <span className={`inline-flex items-center px-2 py-0.5 rounded text-[9.5px] font-black uppercase font-mono ${
                           item.unit?.status === 'Ready' 
                             ? 'bg-emerald-100 text-emerald-800' 
-                            : 'bg-rose-100 text-rose-800'
+                            : 'bg-orange-500 text-white font-bold border border-orange-600 shadow-xs'
                         }`}>
                           {item.unit?.status || 'Unknown'}
                         </span>
@@ -890,9 +914,18 @@ export default function ResumeOperator({
                       </td>
                       <td className="p-3">
                         {ftw.status === 'unfit' ? (
-                          <span className="inline-flex items-center gap-1 text-[10px] font-black text-rose-700 uppercase bg-rose-150 px-2 py-0.5 rounded">
+                          <span className="inline-flex items-center gap-1 text-[10px] font-black text-rose-700 uppercase bg-rose-100 px-2 py-0.5 rounded border border-rose-300">
                             <AlertTriangle className="h-3 w-3 text-rose-600" />
-                            UNFIT! Tukar dengan Master Standby
+                            UNFIT! Dilarang Bekerja / Tukar Master
+                          </span>
+                        ) : ftw.status === 'rest' ? (
+                          <span className="inline-flex items-center gap-1 text-[10px] font-black text-rose-700 uppercase bg-rose-100 px-2 py-0.5 rounded border border-rose-300 animate-pulse">
+                            <AlertTriangle className="h-3 w-3 text-rose-600" />
+                            WAJIB ISTIRAHAT {ftw.record?.riskAspects ? `(${ftw.record.riskAspects})` : ''}
+                          </span>
+                        ) : ftw.status === 'conditional' ? (
+                          <span className="inline-flex items-center gap-1 text-[10px] font-bold text-amber-900 bg-amber-100 px-2 py-0.5 rounded border border-amber-300">
+                            <span>⚠️ Bekerja Dalam Pengawasan Khusus {ftw.record?.riskAspects ? `(${ftw.record.riskAspects})` : ''}</span>
                           </span>
                         ) : ftw.status === 'fit' ? (
                           <span className="text-[10px] text-emerald-700 font-bold">

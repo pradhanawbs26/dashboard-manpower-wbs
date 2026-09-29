@@ -55,7 +55,7 @@ export interface ShiftInfo {
   operator2Role: 'S' | 'M' | 'OFF';
 }
 
-export type FTWStatus = 'fit' | 'unfit' | 'pending';
+export type FTWStatus = 'fit' | 'conditional' | 'rest' | 'unfit' | 'pending';
 
 export interface FTWRecord {
   id: string;
@@ -63,7 +63,10 @@ export interface FTWRecord {
   name?: string;           // Operator name from FTW submission
   date: string;            // YYYY-MM-DD
   shift?: 1 | 2;           // 1 = Siang, 2 = Malam (optional; if omitted applies to entire day)
-  status: 'fit' | 'unfit'; // Fit = ready to work, Unfit = medical/fatigue disqualification
+  status: 'fit' | 'conditional' | 'rest' | 'unfit'; // Fit, Pengawasan Khusus, Wajib Istirahat, or Unfit
+  finalDecision?: string;  // e.g. "FIT", "FIT_CONDITIONAL", "REST_BEFORE_WORK", "UNFIT"
+  fatigueScore?: number;   // e.g. 7, 11
+  fatigueCategory?: string;// e.g. 'NORMAL', 'LAPOR', 'REST', 'UNFIT'
   submittedAt: string;     // ISO timestamp when filled online
   jam?: string;            // Time of submission, e.g. "16:30" or "06:15"
   temperature?: number;    // Body temperature (°C), e.g. 36.4
@@ -71,8 +74,9 @@ export interface FTWRecord {
   sleepHours?: number;     // e.g. 7.5
   sleepHours36?: number;   // e.g. 15.3 (total sleep in 36 hours)
   department?: string;     // e.g. "FD DRIVER • CY & PORT OPERATION"
-  riskAspects?: string;    // e.g. "No risk drugs"
-  recommendation?: string; // e.g. "FIT TO WORK"
+  riskAspects?: string;    // e.g. "No risk drugs", "Fatigue Score: 7", "Obat / Meds"
+  recommendation?: string; // e.g. "FIT TO WORK", "PENGAWASAN KHUSUS", "WAJIB ISTIRAHAT"
   notes?: string;          // e.g. "Fit Siap Kerja", "Pusing/Demam", "Tekanan Darah Tinggi"
   sourceProject?: string;  // e.g. "FTW Online Mining", "Google Form K3", "External Webhook"
 }
+
