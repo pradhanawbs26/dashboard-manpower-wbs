@@ -4,8 +4,10 @@ import { calculateShift, formatIndonesianDate, formatIndonesianDayName } from '.
 import { getOperatorFTW, getFTWStyleConfig } from '../utils/ftwHelper';
 import { 
   CheckCircle2, AlertTriangle, Users, Calendar, Moon, Sun, 
-  Armchair, Settings2, ShieldCheck, HelpCircle, UserX, ToggleRight, Layers, HeartPulse
+  Armchair, Settings2, ShieldCheck, HelpCircle, UserX, ToggleRight, Layers, HeartPulse,
+  BarChart3, ShieldAlert
 } from 'lucide-react';
+import FtwComplianceAnalytics from './FtwComplianceAnalytics';
 
 interface ResumeOperatorProps {
   units: HeavyUnit[];
@@ -33,6 +35,8 @@ export default function ResumeOperator({
     const hr = now.getHours();
     return (hr >= 6 && hr < 18) ? 1 : 2;
   });
+
+  const [activeSubMenu, setActiveSubMenu] = useState<'allocation_resume' | 'ftw_compliance'>('allocation_resume');
 
   // Quick Day adjustment
   const handlePrevDay = () => {
@@ -483,64 +487,131 @@ export default function ResumeOperator({
   return (
     <div className="flex flex-col h-full bg-slate-50 text-slate-700">
       {/* Header Panel */}
-      <div className="bg-white text-slate-800 p-5 border-b border-slate-200 shadow-sm flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+      <div className="bg-white text-slate-800 p-5 border-b border-slate-200 shadow-xs flex flex-col md:flex-row md:items-center md:justify-between gap-4">
         <div>
           <div className="flex items-center gap-2">
             <Layers className="h-5 w-5 text-amber-500" />
             <h1 className="text-xl font-black tracking-tight text-slate-900">
-              Resume Operator &amp; Unit
+              Resume Operator &amp; Monitoring K3
             </h1>
           </div>
           <p className="text-xs text-slate-500 mt-1">
-            Analisis alokasi operator, kekosongan unit, dan kesiapan armada saat ini
+            {activeSubMenu === 'allocation_resume' 
+              ? 'Analisis alokasi operator, kekosongan unit, dan kesiapan armada saat ini' 
+              : 'Pemantauan kepatuhan pengisian FTW, analisis tren harian, dan frekuensi alpa operator'}
           </p>
         </div>
 
-        {/* Quick Shift Switcher */}
-        <div className="flex items-center bg-slate-100 p-1 rounded-lg border border-slate-200 text-xs font-bold gap-1 self-start md:self-center">
+        {activeSubMenu === 'allocation_resume' ? (
+          <div className="flex flex-wrap items-center gap-3">
+            {/* Quick Shift Switcher */}
+            <div className="flex items-center bg-slate-100 p-1 rounded-lg border border-slate-200 text-xs font-bold gap-1 self-start md:self-center">
+              <button
+                onClick={() => setSelectedShift(1)}
+                className={`flex items-center gap-1 px-3 py-1.5 rounded-md transition-all cursor-pointer ${
+                  selectedShift === 1
+                    ? 'bg-amber-500 text-slate-950 shadow-xs'
+                    : 'text-slate-600 hover:text-slate-900'
+                }`}
+              >
+                <Sun className="h-3.5 w-3.5" />
+                <span>Shift Siang</span>
+              </button>
+              <button
+                onClick={() => setSelectedShift(2)}
+                className={`flex items-center gap-1 px-3 py-1.5 rounded-md transition-all cursor-pointer ${
+                  selectedShift === 2
+                    ? 'bg-indigo-600 text-white shadow-xs'
+                    : 'text-slate-600 hover:text-slate-900'
+                }`}
+              >
+                <Moon className="h-3.5 w-3.5" />
+                <span>Shift Malam</span>
+              </button>
+            </div>
+
+            {/* Date Navigator */}
+            <div className="flex items-center gap-2 w-full sm:w-auto justify-end">
+              <input
+                type="date"
+                value={selectedDate}
+                onChange={(e) => e.target.value && setSelectedDate(e.target.value)}
+                className="px-2.5 py-1.5 border border-slate-200 text-xs font-semibold rounded-lg bg-white shadow-xs text-slate-800 outline-none focus:border-amber-500"
+              />
+            </div>
+          </div>
+        ) : (
+          <div className="flex items-center gap-2">
+            <span className="px-3 py-1 rounded-full bg-rose-50 text-rose-800 border border-rose-200 text-xs font-bold font-mono flex items-center gap-1.5">
+              <ShieldAlert className="h-3.5 w-3.5 text-rose-600" />
+              <span>Modul Analisis Kepatuhan FTW</span>
+            </span>
+          </div>
+        )}
+      </div>
+
+      {/* Sub Menu Switcher Tabs */}
+      <div className="bg-white px-6 border-b border-slate-200 flex flex-wrap items-center justify-between gap-3 shadow-2xs">
+        <div className="flex items-center gap-2">
           <button
-            onClick={() => setSelectedShift(1)}
-            className={`flex items-center gap-1 px-3 py-1.5 rounded-md transition-all cursor-pointer ${
-              selectedShift === 1
-                ? 'bg-amber-500 text-slate-950 shadow-xs'
-                : 'text-slate-600 hover:text-slate-900'
+            onClick={() => setActiveSubMenu('allocation_resume')}
+            className={`flex items-center gap-2 py-3 px-4 text-xs font-bold border-b-2 transition-all cursor-pointer ${
+              activeSubMenu === 'allocation_resume'
+                ? 'border-amber-500 text-slate-900 font-black'
+                : 'border-transparent text-slate-500 hover:text-slate-800'
             }`}
           >
-            <Sun className="h-3.5 w-3.5" />
-            <span>Shift Siang</span>
+            <Layers className="h-4 w-4 text-amber-500" />
+            <span>📋 Alokasi &amp; Kesiapan Harian</span>
           </button>
+
           <button
-            onClick={() => setSelectedShift(2)}
-            className={`flex items-center gap-1 px-3 py-1.5 rounded-md transition-all cursor-pointer ${
-              selectedShift === 2
-                ? 'bg-indigo-600 text-white shadow-xs'
-                : 'text-slate-600 hover:text-slate-900'
+            onClick={() => setActiveSubMenu('ftw_compliance')}
+            className={`flex items-center gap-2 py-3 px-4 text-xs font-bold border-b-2 transition-all cursor-pointer ${
+              activeSubMenu === 'ftw_compliance'
+                ? 'border-rose-500 text-rose-900 font-black'
+                : 'border-transparent text-slate-500 hover:text-slate-800'
             }`}
           >
-            <Moon className="h-3.5 w-3.5" />
-            <span>Shift Malam</span>
+            <BarChart3 className="h-4 w-4 text-rose-500" />
+            <span>📊 Tren &amp; Frekuensi Tidak Mengisi FTW</span>
+            {ftwPendingCount > 0 && (
+              <span className="px-2 py-0.5 rounded-full text-[10px] font-mono font-black bg-rose-100 text-rose-800 border border-rose-200">
+                {ftwPendingCount} Belum FTW
+              </span>
+            )}
           </button>
         </div>
 
-        {/* Date Navigator */}
-        <div className="flex items-center gap-2.5 w-full md:w-auto justify-end">
-          <input
-            type="date"
-            value={selectedDate}
-            onChange={(e) => e.target.value && setSelectedDate(e.target.value)}
-            className="px-2.5 py-1.5 border border-slate-200 text-xs font-semibold rounded-lg bg-white shadow-xs text-slate-800 outline-none focus:border-amber-500"
-          />
+        <div className="hidden sm:flex items-center gap-1 text-[11px] text-slate-400 font-mono font-bold">
+          {activeSubMenu === 'allocation_resume' ? (
+            <span>Tanggal: {selectedDate} • Shift {selectedShift}</span>
+          ) : (
+            <span>Filter &amp; Tren Fleksibel</span>
+          )}
         </div>
       </div>
 
       {/* Main Content Scroll Grid */}
       <div className="flex-1 p-6 overflow-y-auto space-y-6">
-        {/* Active Shift Card Callout */}
-        <div className={`p-4 rounded-xl border flex flex-col md:flex-row justify-between items-start md:items-center gap-4 ${
-          selectedShift === 1 
-            ? 'bg-amber-50/50 border-amber-200/60' 
-            : 'bg-indigo-50/50 border-indigo-200/60'
-        }`}>
+        {activeSubMenu === 'ftw_compliance' ? (
+          <FtwComplianceAnalytics
+            units={units}
+            employees={employees}
+            settings={settings}
+            backupTransfers={backupTransfers}
+            ftwRecords={ftwRecords}
+            initialDate={selectedDate}
+            onOpenFTWModal={onOpenFTWModal}
+          />
+        ) : (
+          <>
+            {/* Active Shift Card Callout */}
+            <div className={`p-4 rounded-xl border flex flex-col md:flex-row justify-between items-start md:items-center gap-4 ${
+              selectedShift === 1 
+                ? 'bg-amber-50/50 border-amber-200/60' 
+                : 'bg-indigo-50/50 border-indigo-200/60'
+            }`}>
           <div>
             <h2 className="text-sm font-black uppercase tracking-wider text-slate-800">
               Shift Aktif: {selectedShift === 1 ? 'Siang' : 'Malam'}
@@ -948,7 +1019,8 @@ export default function ResumeOperator({
             </table>
           </div>
         </div>
-
+          </>
+        )}
       </div>
     </div>
   );
