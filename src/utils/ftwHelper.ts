@@ -32,6 +32,108 @@ export function normalizeNIK(nik?: string): string {
   return String(nik).trim().toUpperCase().replace(/[^A-Z0-9]/g, '');
 }
 
+export interface NikValidationResult {
+  isValid: boolean;
+  cleanedNik: string;
+  hasLeadingZero: boolean;
+  isAbnormalLength: boolean;
+  hasNonDigits: boolean;
+  digitCount: number;
+  suggestedNik: string;
+  errorMessage?: string;
+  noticeMessage?: string;
+}
+
+/**
+ * Validates NIK strictly according to PT. WBS standard rules:
+ * 1. Exactly 9 digits.
+ * 2. Digits only (no letters/symbols).
+ * 3. MUST NOT start with zero (0).
+ * 
+ * If starts with 0: shows prompt notice to enter without leading zero.
+ * If abnormal length: gives strict K3 warning and forbids FTW submission.
+ */
+export function validateNikStrict(rawNik: string): NikValidationResult {
+  const trimmed = String(rawNik || '').trim();
+  if (!trimmed) {
+    return {
+      isValid: false,
+      cleanedNik: '',
+      hasLeadingZero: false,
+      isAbnormalLength: false,
+      hasNonDigits: false,
+      digitCount: 0,
+      suggestedNik: '',
+      errorMessage: 'NIK wajib diisi.'
+    };
+  }
+
+  // Strip prefix NIK or NRP if entered
+  const upper = trimmed.toUpperCase();
+  const withoutPrefix = upper.replace(/^(NIK|NRP)[-\s]*/, '');
+
+  const hasLeadingZero = withoutPrefix.startsWith('0');
+  const nonDigits = withoutPrefix.replace(/[0-9]/g, '');
+  const hasNonDigits = nonDigits.length > 0;
+  const digitsOnly = withoutPrefix.replace(/[^0-9]/g, '');
+  const strippedZero = digitsOnly.replace(/^0+/, '');
+  const isAbnormalLength = digitsOnly.length !== 9;
+
+  // Case 1: Starts with zero
+  if (hasLeadingZero) {
+    const suggested = strippedZero.length === 9 ? strippedZero : (strippedZero || '256900117');
+    return {
+      isValid: false,
+      cleanedNik: strippedZero,
+      hasLeadingZero: true,
+      isAbnormalLength,
+      hasNonDigits,
+      digitCount: digitsOnly.length,
+      suggestedNik: suggested,
+      noticeMessage: `Pemberitahuan NIK: NIK tidak boleh diawali angka nol (0). Harap mengisi NIK yang benar di input NIK tanpa angka nol di depan (contoh NIK benar: ${suggested}).`,
+      errorMessage: `Pemberitahuan NIK: NIK tidak boleh diawali angka nol (0). Harap mengisi NIK yang benar di input NIK tanpa nol.`
+    };
+  }
+
+  // Case 2: Contains letters or symbols
+  if (hasNonDigits) {
+    return {
+      isValid: false,
+      cleanedNik: digitsOnly,
+      hasLeadingZero: false,
+      isAbnormalLength: digitsOnly.length !== 9,
+      hasNonDigits: true,
+      digitCount: digitsOnly.length,
+      suggestedNik: digitsOnly,
+      errorMessage: `Peringatan: NIK hanya boleh berupa angka. Karakter "${nonDigits}" tidak valid.`
+    };
+  }
+
+  // Case 3: Abnormal digit count (Must be exactly 9 digits)
+  if (digitsOnly.length !== 9) {
+    return {
+      isValid: false,
+      cleanedNik: digitsOnly,
+      hasLeadingZero: false,
+      isAbnormalLength: true,
+      hasNonDigits: false,
+      digitCount: digitsOnly.length,
+      suggestedNik: digitsOnly,
+      errorMessage: `Peringatan K3: Jumlah digit NIK abnormal (${digitsOnly.length} digit). Tidak boleh mengisi FTW! Format NIK wajib tepat 9 digit angka tanpa angka nol di depannya (contoh: 256900117 atau 266900047).`
+    };
+  }
+
+  return {
+    isValid: true,
+    cleanedNik: digitsOnly,
+    hasLeadingZero: false,
+    isAbnormalLength: false,
+    hasNonDigits: false,
+    digitCount: 9,
+    suggestedNik: digitsOnly
+  };
+}
+
 /**
  * Checks if two NIK strings match, even if one has prefix "NIK" / "NRP", leading zeros, or spaces.
  * e.g., "NIK226900186" matches "226900186", "0226900186", "NRP-226900186".

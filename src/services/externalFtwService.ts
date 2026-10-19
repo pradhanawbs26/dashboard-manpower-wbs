@@ -15,6 +15,7 @@ import {
   query, 
   limit, 
   orderBy,
+  where,
   setDoc, 
   doc, 
   Firestore,
@@ -177,7 +178,12 @@ export function parseExternalFtwDoc(docId: string, data: any, sourceCollection: 
     return null; // NIK is essential for cross-project mapping
   }
 
-  const nik = String(rawNik).trim().toUpperCase();
+  let nikStr = String(rawNik).trim().toUpperCase().replace(/^(NIK|NRP)[-\s]*/, '');
+  // Normalize if user entered manual zero in front: strip leading zeros so it becomes pure 9-digit NIK
+  if (nikStr.startsWith('0')) {
+    nikStr = nikStr.replace(/^0+/, '');
+  }
+  const nik = nikStr;
 
   // 2. Extract Operator Name
   const name = 
@@ -422,7 +428,7 @@ export function parseExternalFtwDoc(docId: string, data: any, sourceCollection: 
  * In-memory & LocalStorage Cache Configuration to protect Firebase Read Quota
  */
 const FTW_CACHE_TTL_MS = 15 * 60 * 1000; // 15 Minutes Cache TTL
-const MAX_DOCS_FETCH_LIMIT = 80; // Strict limit to cover today's shift (74 operators), preventing massive multi-thousand document scans
+const MAX_DOCS_FETCH_LIMIT = 150; // Limit to 150 latest documents to cover all shift submissions (Siang & Malam)
 
 interface FTWCachePayload {
   timestamp: number;
@@ -436,10 +442,15 @@ const inFlightFetches: Record<string, Promise<{ success: boolean; records: FTWRe
 /**
  * Read cached FTW records from memory or localStorage
  */
-export function getCachedExternalFtw(collectionName: string = DEFAULT_COLLECTION): FTWCachePayload | null {
+export function getCachedExternalFtw(
+  collectionName: string = DEFAULT_COLLECTION,
+  targetDate?: string
+): FTWCachePayload | null {
+  const cacheKey = targetDate ? `${collectionName}_${targetDate}` : collectionName;
+
   // 1. Check in-memory cache
-  if (memoryFtwCache[collectionName]) {
-    const mem = memoryFtwCache[collectionName];
+  if (memoryFtwCache[cacheKey]) {
+    const mem = memoryFtwCache[cacheKey];
     if (Date.now() - mem.timestamp < FTW_CACHE_TTL_MS) {
       return mem;
     }
@@ -447,11 +458,11 @@ export function getCachedExternalFtw(collectionName: string = DEFAULT_COLLECTION
 
   // 2. Check localStorage cache
   try {
-    const raw = localStorage.getItem(`wbs_ftw_cache_${collectionName}`);
+    const raw = localStorage.getItem(`wbs_ftw_cache_${cacheKey}`);
     if (raw) {
       const parsed: FTWCachePayload = JSON.parse(raw);
       if (parsed && parsed.timestamp && (Date.now() - parsed.timestamp < FTW_CACHE_TTL_MS)) {
-        memoryFtwCache[collectionName] = parsed;
+        memoryFtwCache[cacheKey] = parsed;
         return parsed;
       }
     }
@@ -465,15 +476,21 @@ export function getCachedExternalFtw(collectionName: string = DEFAULT_COLLECTION
 /**
  * Save FTW records to memory & localStorage cache
  */
-function setCachedExternalFtw(collectionName: string, records: FTWRecord[], totalRawDocs: number): void {
+function setCachedExternalFtw(
+  collectionName: string, 
+  records: FTWRecord[], 
+  totalRawDocs: number,
+  targetDate?: string
+): void {
+  const cacheKey = targetDate ? `${collectionName}_${targetDate}` : collectionName;
   const payload: FTWCachePayload = {
     timestamp: Date.now(),
     records,
     totalRawDocs
   };
-  memoryFtwCache[collectionName] = payload;
+  memoryFtwCache[cacheKey] = payload;
   try {
-    localStorage.setItem(`wbs_ftw_cache_${collectionName}`, JSON.stringify(payload));
+    localStorage.setItem(`wbs_ftw_cache_${cacheKey}`, JSON.stringify(payload));
     localStorage.setItem('wbs_ftw_last_sync_time', String(payload.timestamp));
   } catch {
     // Ignore storage quota warnings
@@ -482,11 +499,13 @@ function setCachedExternalFtw(collectionName: string, records: FTWRecord[], tota
 
 /**
  * Fetch FTW records with quota protection & caching.
+ * Supports date-specific querying for historical days (e.g. 2026-09-29) so operators like Sidir Ali & Dodi Haryadi are immediately retrieved.
  * Set `forceFresh = true` only when user explicitly clicks "Sinkronkan Sekarang".
  */
 export async function fetchExternalFtw(
   collectionName: string = DEFAULT_COLLECTION,
-  forceFresh: boolean = false
+  forceFresh: boolean = false,
+  targetDate?: string
 ): Promise<{
   success: boolean;
   records: FTWRecord[];
@@ -494,9 +513,11 @@ export async function fetchExternalFtw(
   error?: string;
   fromCache?: boolean;
 }> {
+  const fetchKey = targetDate ? `${collectionName}_${targetDate}` : collectionName;
+
   // 1. Return cache if not forced and still fresh (Zero Firestore Reads!)
   if (!forceFresh) {
-    const cached = getCachedExternalFtw(collectionName);
+    const cached = getCachedExternalFtw(collectionName, targetDate);
     if (cached && cached.records.length > 0) {
       return {
         success: true,
@@ -508,8 +529,8 @@ export async function fetchExternalFtw(
   }
 
   // 2. In-flight request deduplication (prevents simultaneous duplicate reads)
-  if (inFlightFetches[collectionName]) {
-    return inFlightFetches[collectionName];
+  if (inFlightFetches[fetchKey]) {
+    return inFlightFetches[fetchKey];
   }
 
   const fetchPromise = (async () => {
@@ -517,14 +538,35 @@ export async function fetchExternalFtw(
       const db = getExternalFtwDb();
       const colRef = collection(db, collectionName);
 
-      // Strict limit of 100 documents to cover current shift operators without reading thousands of past records
       let snapshot;
-      try {
-        const q = query(colRef, orderBy('updatedAt', 'desc'), limit(MAX_DOCS_FETCH_LIMIT));
-        snapshot = await getDocs(q);
-      } catch {
-        const qFallback = query(colRef, limit(MAX_DOCS_FETCH_LIMIT));
-        snapshot = await getDocs(qFallback);
+
+      // If a specific date was requested, query that date directly
+      if (targetDate) {
+        try {
+          const qDate = query(colRef, where('tanggalPengisian', '==', targetDate), limit(MAX_DOCS_FETCH_LIMIT));
+          const snapDate = await getDocs(qDate);
+          if (snapDate.size > 0) {
+            snapshot = snapDate;
+          }
+        } catch {
+          // Fall back if query with where fails
+        }
+      }
+
+      // If no date query or date query returned empty, query latest documents
+      if (!snapshot) {
+        try {
+          const q = query(colRef, orderBy('timestamp', 'desc'), limit(MAX_DOCS_FETCH_LIMIT));
+          snapshot = await getDocs(q);
+        } catch {
+          try {
+            const qTanggal = query(colRef, orderBy('tanggalPengisian', 'desc'), limit(MAX_DOCS_FETCH_LIMIT));
+            snapshot = await getDocs(qTanggal);
+          } catch {
+            const qFallback = query(colRef, limit(MAX_DOCS_FETCH_LIMIT));
+            snapshot = await getDocs(qFallback);
+          }
+        }
       }
 
       const records: FTWRecord[] = [];
@@ -536,7 +578,7 @@ export async function fetchExternalFtw(
       });
 
       // Update cache
-      setCachedExternalFtw(collectionName, records, snapshot.size);
+      setCachedExternalFtw(collectionName, records, snapshot.size, targetDate);
 
       return {
         success: true,
@@ -549,7 +591,7 @@ export async function fetchExternalFtw(
       const isQuota = msg.toLowerCase().includes('quota exceeded') || msg.toLowerCase().includes('resource-exhausted');
       
       // If network fails or quota is exhausted, fall back to any existing cache
-      const cached = getCachedExternalFtw(collectionName);
+      const cached = getCachedExternalFtw(collectionName, targetDate);
       if (cached && cached.records.length > 0) {
         return {
           success: true,
@@ -569,11 +611,11 @@ export async function fetchExternalFtw(
           : msg
       };
     } finally {
-      delete inFlightFetches[collectionName];
+      delete inFlightFetches[fetchKey];
     }
   })();
 
-  inFlightFetches[collectionName] = fetchPromise;
+  inFlightFetches[fetchKey] = fetchPromise;
   return fetchPromise;
 }
 
@@ -633,12 +675,16 @@ function startGlobalRealtimeListener(collectionName: string, onError?: (err: any
     const db = getExternalFtwDb();
     const colRef = collection(db, collectionName);
 
-    // Strict limit of 80 documents sorted by latest submission to cover current shift operators
+    // Limit to latest 150 documents sorted by latest submission to cover current shift operators
     let q;
     try {
-      q = query(colRef, orderBy('updatedAt', 'desc'), limit(MAX_DOCS_FETCH_LIMIT));
+      q = query(colRef, orderBy('timestamp', 'desc'), limit(MAX_DOCS_FETCH_LIMIT));
     } catch {
-      q = query(colRef, limit(MAX_DOCS_FETCH_LIMIT));
+      try {
+        q = query(colRef, orderBy('tanggalPengisian', 'desc'), limit(MAX_DOCS_FETCH_LIMIT));
+      } catch {
+        q = query(colRef, limit(MAX_DOCS_FETCH_LIMIT));
+      }
     }
 
     globalUnsubscribe = onSnapshot(

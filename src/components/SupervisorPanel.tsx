@@ -12,7 +12,9 @@ import {
   getRecordWibDate, 
   getRecordShift, 
   getSubmittedFtwForDateAndShift,
-  isNikMatch 
+  isNikMatch,
+  validateNikStrict,
+  NikValidationResult
 } from '../utils/ftwHelper';
 import { 
   fetchExternalFtw, 
@@ -22,7 +24,8 @@ import {
 import { 
   Building2, Truck, Users, Settings, Plus, Pencil, Trash2, Check, X, 
   HelpCircle, AlertCircle, Info, Calendar, CalendarDays, Eye, RefreshCw, Search, Sun, Moon,
-  HeartPulse, Sparkles, Filter, ChevronRight, ChevronDown, ChevronUp, Clock, ShieldCheck, Zap
+  HeartPulse, Sparkles, Filter, ChevronRight, ChevronDown, ChevronUp, Clock, ShieldCheck, Zap,
+  AlertTriangle, ShieldAlert
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
@@ -178,6 +181,12 @@ export default function SupervisorPanel({
   const [simNotes, setSimNotes] = useState('');
   const [simIsLoading, setSimIsLoading] = useState(false);
 
+  // Real-time strict NIK validation for FTW Simulation / Entry
+  const simNikValidation = useMemo<NikValidationResult | null>(() => {
+    if (!simEmployeeNrp.trim()) return null;
+    return validateNikStrict(simEmployeeNrp);
+  }, [simEmployeeNrp]);
+
   // 8-Day rolling calendar starting point for setting previews (automatically follows today's date)
   const [previewStartDate, setPreviewStartDate] = useState(selectedDate || '2026-09-28');
 
@@ -232,11 +241,21 @@ export default function SupervisorPanel({
     e.preventDefault();
     if (!simEmployeeNrp.trim()) return;
 
+    // Strict K3 NIK Validation check
+    const nikCheck = validateNikStrict(simEmployeeNrp);
+    if (!nikCheck.isValid) {
+      setPullFtwNotice({
+        type: 'error',
+        message: nikCheck.errorMessage || 'Pengisian FTW ditolak: Format NIK wajib tepat 9 digit tanpa angka nol di depan!'
+      });
+      return;
+    }
+
     setSimIsLoading(true);
     setPullFtwNotice(null);
 
-    const emp = employees.find(em => isNikMatch(em.nrp, simEmployeeNrp));
-    const targetNik = simEmployeeNrp.trim().toUpperCase();
+    const targetNik = nikCheck.cleanedNik;
+    const emp = employees.find(em => isNikMatch(em.nrp, targetNik));
     const targetName = emp?.name || `Operator (${targetNik})`;
     const derivedShift: 1 | 2 = (simHour >= 15 || simHour < 4) ? 2 : 1;
 
@@ -410,15 +429,23 @@ export default function SupervisorPanel({
     e.preventDefault();
     if (!empName || !empNrp) return;
 
+    const nikCheck = validateNikStrict(empNrp);
+    if (!nikCheck.isValid) {
+      alert(nikCheck.errorMessage || 'Format NIK wajib tepat 9 digit angka tanpa angka nol di depannya!');
+      return;
+    }
+
+    const cleanNik = nikCheck.cleanedNik;
+
     if (editingEmp) {
       setEmployees(prev => prev.map(emp => emp.id === editingEmp.id
-        ? { ...emp, nrp: empNrp.trim().toUpperCase(), name: empName.trim().toUpperCase(), rosterPattern: empRoster, status: empStatus, specializations: empSpecializations }
+        ? { ...emp, nrp: cleanNik, name: empName.trim().toUpperCase(), rosterPattern: empRoster, status: empStatus, specializations: empSpecializations }
         : emp
       ));
     } else {
       const newEmp: Employee = {
         id: 'e_' + Date.now(),
-        nrp: empNrp.trim().toUpperCase(),
+        nrp: cleanNik,
         name: empName.trim().toUpperCase(),
         rosterPattern: empRoster,
         status: empStatus,
@@ -2963,11 +2990,84 @@ export default function SupervisorPanel({
                 </p>
                 <input
                   type="text"
-                  placeholder="Ketik NIK manual (misal: NIK9901 atau NRP102)"
+                  placeholder="Ketik NIK 9 digit tanpa nol di depan (misal: 256900117)"
                   value={simEmployeeNrp}
                   onChange={(e) => setSimEmployeeNrp(e.target.value.toUpperCase())}
-                  className="mt-1.5 w-full bg-slate-50 border border-slate-200 rounded px-3 py-1.5 text-xs text-slate-800 font-mono font-bold focus:outline-none focus:border-amber-500"
+                  className={`mt-1.5 w-full bg-slate-50 border rounded px-3 py-1.5 text-xs text-slate-800 font-mono font-bold focus:outline-none transition ${
+                    simNikValidation?.hasLeadingZero
+                      ? 'border-amber-400 bg-amber-50/40 text-amber-950 focus:border-amber-500'
+                      : simNikValidation?.isAbnormalLength
+                      ? 'border-rose-400 bg-rose-50/40 text-rose-950 focus:border-rose-500'
+                      : simNikValidation?.isValid
+                      ? 'border-emerald-500 bg-emerald-50/30 text-emerald-950 focus:border-emerald-600'
+                      : 'border-slate-200 focus:border-amber-500'
+                  }`}
                 />
+
+                {/* Live NIK Validation Messages & Alerts */}
+                {simNikValidation && (
+                  <div className="mt-2 space-y-2">
+                    {/* Leading Zero Notice */}
+                    {simNikValidation.hasLeadingZero && (
+                      <div className="p-3 bg-amber-50 border border-amber-300 rounded-lg text-amber-900 text-xs shadow-2xs">
+                        <div className="flex items-start gap-2">
+                          <AlertTriangle className="h-4 w-4 text-amber-600 shrink-0 mt-0.5" />
+                          <div className="flex-1">
+                            <p className="font-bold text-[11px] text-amber-950">
+                              ⚠️ Pemberitahuan NIK: NIK Tidak Boleh Diawali Angka Nol (0)
+                            </p>
+                            <p className="text-[11px] mt-0.5 text-amber-800 leading-snug">
+                              Harap mengisi NIK yang benar di input NIK tanpa angka nol di depan.
+                            </p>
+                            {simNikValidation.suggestedNik && (
+                              <button
+                                type="button"
+                                onClick={() => setSimEmployeeNrp(simNikValidation.suggestedNik)}
+                                className="mt-2 inline-flex items-center gap-1.5 px-3 py-1 bg-amber-600 hover:bg-amber-700 text-white rounded text-[11px] font-bold transition shadow-xs cursor-pointer"
+                              >
+                                <span>Gunakan NIK tanpa nol:</span>
+                                <span className="font-mono underline">{simNikValidation.suggestedNik}</span>
+                              </button>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Abnormal Length Warning */}
+                    {simNikValidation.isAbnormalLength && !simNikValidation.hasLeadingZero && (
+                      <div className="p-3 bg-rose-50 border border-rose-300 rounded-lg text-rose-900 text-xs shadow-2xs">
+                        <div className="flex items-start gap-2">
+                          <ShieldAlert className="h-4 w-4 text-rose-600 shrink-0 mt-0.5" />
+                          <div>
+                            <p className="font-bold text-[11px] text-rose-950">
+                              🚫 Peringatan K3: Jumlah Digit NIK Abnormal ({simNikValidation.digitCount} Digit)!
+                            </p>
+                            <p className="text-[11px] mt-0.5 text-rose-800 leading-snug">
+                              <strong>Tidak boleh mengisi FTW!</strong> Format digit NIK wajib tepat 9 digit angka tanpa angka nol di depannya (contoh: 256900117 atau 266900047).
+                            </p>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Non-digit characters */}
+                    {simNikValidation.hasNonDigits && (
+                      <div className="p-2.5 bg-rose-50 border border-rose-300 rounded-lg text-rose-900 text-xs flex items-center gap-2">
+                        <AlertCircle className="h-4 w-4 text-rose-600 shrink-0" />
+                        <span className="text-[11px] font-bold">{simNikValidation.errorMessage}</span>
+                      </div>
+                    )}
+
+                    {/* Success valid indicator */}
+                    {simNikValidation.isValid && (
+                      <div className="p-2 bg-emerald-50 border border-emerald-300 rounded-lg text-emerald-900 text-[11px] font-bold flex items-center gap-2">
+                        <Check className="h-4 w-4 text-emerald-600 shrink-0" />
+                        <span>Format NIK Valid (Tepat 9 Digit): <strong className="font-mono text-emerald-950">{simNikValidation.cleanedNik}</strong></span>
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
 
               <div className="grid grid-cols-2 gap-3">
@@ -3047,13 +3147,23 @@ export default function SupervisorPanel({
                 </button>
                 <button
                   type="submit"
-                  disabled={simIsLoading || !simEmployeeNrp.trim()}
-                  className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 disabled:bg-slate-400 text-white font-bold rounded text-xs transition flex items-center gap-1.5 cursor-pointer shadow-sm"
+                  disabled={simIsLoading || !simNikValidation?.isValid}
+                  className={`px-4 py-2 font-bold rounded text-xs transition flex items-center gap-1.5 shadow-sm ${
+                    !simNikValidation?.isValid
+                      ? 'bg-slate-200 text-slate-400 border border-slate-300 cursor-not-allowed opacity-80'
+                      : 'bg-indigo-600 hover:bg-indigo-500 text-white cursor-pointer'
+                  }`}
+                  title={!simNikValidation?.isValid ? 'Tidak boleh mengisi FTW: NIK tidak valid' : 'Kirim FTW'}
                 >
                   {simIsLoading ? (
                     <>
                       <RefreshCw className="h-3.5 w-3.5 animate-spin" />
                       <span>Mengirim...</span>
+                    </>
+                  ) : !simNikValidation?.isValid ? (
+                    <>
+                      <ShieldAlert className="h-3.5 w-3.5 text-rose-500" />
+                      <span>Dilarang Mengisi (NIK Tidak Valid)</span>
                     </>
                   ) : (
                     <>

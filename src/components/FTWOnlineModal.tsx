@@ -5,17 +5,19 @@
 
 import React, { useState, useMemo } from 'react';
 import { Employee, FTWRecord } from '../types';
-import { getOperatorFTW, getFTWStyleConfig, isNikMatch } from '../utils/ftwHelper';
+import { getOperatorFTW, getFTWStyleConfig, isNikMatch, validateNikStrict, NikValidationResult } from '../utils/ftwHelper';
 import { 
   EXTERNAL_FTW_CONFIG,
   COMMON_FTW_COLLECTIONS,
-  fetchExternalFtw
+  fetchExternalFtw,
+  writeTestExternalFtwSubmission
 } from '../services/externalFtwService';
 import { 
   HeartPulse, CheckCircle2, AlertTriangle, Clock, X,
   RefreshCw, Upload, Download, Search, Database, 
   Layers, Check, Info, FileSpreadsheet, Sun, Moon,
-  ShieldCheck, FileText, ArrowUpDown, Filter, ChevronRight
+  ShieldCheck, FileText, ArrowUpDown, Filter, ChevronRight,
+  ShieldAlert, PlusCircle, AlertCircle
 } from 'lucide-react';
 
 interface FTWOnlineModalProps {
@@ -37,13 +39,15 @@ export default function FTWOnlineModal({
   onClose,
   employees,
   ftwRecords,
+  onSaveRecord,
+  onDeleteRecord,
   onBulkSync,
   selectedDate,
   externalCollectionName: initialCollection = 'ftw',
   onSetExternalCollectionName
 }: FTWOnlineModalProps) {
   // Navigation Tabs matching the FTW Admin Center
-  const [activeTab, setActiveTab] = useState<'dashboard_logs' | 'sheets_integration' | 'firebase_cloud' | 'shift_rules'>('dashboard_logs');
+  const [activeTab, setActiveTab] = useState<'dashboard_logs' | 'operator_entry' | 'sheets_integration' | 'firebase_cloud' | 'shift_rules'>('dashboard_logs');
   
   // Dashboard Log Filters
   const [filterDate, setFilterDate] = useState<string>(selectedDate);
@@ -53,6 +57,30 @@ export default function FTWOnlineModal({
   
   // Selected detail record modal
   const [selectedRecordDetail, setSelectedRecordDetail] = useState<FTWRecord | null>(null);
+
+  // Dedicated Operator FTW Entry Form States (Strict NIK 9 Digit Enforcement)
+  const [formNik, setFormNik] = useState('');
+  const [formName, setFormName] = useState('');
+  const [formDate, setFormDate] = useState(selectedDate);
+  const [formHour, setFormHour] = useState<number>(() => {
+    const hr = new Date().getHours();
+    return (hr >= 0 && hr <= 23) ? hr : 6;
+  });
+  const [formMinute, setFormMinute] = useState<string>('00');
+  const [formStatus, setFormStatus] = useState<'fit' | 'conditional' | 'rest' | 'unfit'>('fit');
+  const [formFatigueScore, setFormFatigueScore] = useState<number>(0);
+  const [formTemp, setFormTemp] = useState<number>(36.5);
+  const [formBloodPressure, setFormBloodPressure] = useState('120/80');
+  const [formSleep12, setFormSleep12] = useState<number>(7.0);
+  const [formSleep36, setFormSleep36] = useState<number>(14.0);
+  const [formNotes, setFormNotes] = useState('');
+  const [formSubmitting, setFormSubmitting] = useState(false);
+  const [formNotice, setFormNotice] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
+
+  const formNikValidation = useMemo<NikValidationResult | null>(() => {
+    if (!formNik.trim()) return null;
+    return validateNikStrict(formNik);
+  }, [formNik]);
 
   // External Firebase controls
   const [collectionName, setCollectionName] = useState(() => {
@@ -81,10 +109,10 @@ export default function FTWOnlineModal({
   const handlePullExternalData = async () => {
     setIsSyncing(true);
     setSyncError(null);
-    setSyncStatusText(`Menghubungkan ke project "ftw-wbs" (koleksi: "${collectionName}")...`);
+    setSyncStatusText(`Menghubungkan ke project "ftw-wbs" (koleksi: "${collectionName}", tanggal: ${filterDate || selectedDate})...`);
 
     try {
-      const result = await fetchExternalFtw(collectionName, true);
+      const result = await fetchExternalFtw(collectionName, true, filterDate || selectedDate);
       if (result.success) {
         if (result.records.length > 0) {
           const existingIds = new Set(result.records.map(r => r.id));
@@ -93,11 +121,11 @@ export default function FTWOnlineModal({
           onBulkSync(merged);
 
           setSyncStatusText(
-            `Berhasil menyinkronkan ${result.records.length} data FTW dari Firebase ftw-wbs! (${result.totalRawDocs} dokumen terbaca secara hemat kuota). Data tersimpan aman di cache & database lokal.`
+            `Berhasil menyinkronkan ${result.records.length} data FTW dari Firebase ftw-wbs untuk tanggal ${filterDate || selectedDate}! (${result.totalRawDocs} dokumen terbaca secara hemat kuota). Data tersimpan aman di cache & database lokal.`
           );
         } else {
           setSyncStatusText(
-            `Koneksi ke ftw-wbs berhasil, namun koleksi "${collectionName}" mengembalikan 0 dokumen aktif.`
+            `Koneksi ke ftw-wbs berhasil, namun koleksi "${collectionName}" mengembalikan 0 dokumen aktif untuk tanggal ${filterDate || selectedDate}.`
           );
         }
       } else {
@@ -107,6 +135,80 @@ export default function FTWOnlineModal({
       setSyncError(`Terjadi kesalahan: ${err?.message || String(err)}`);
     } finally {
       setIsSyncing(false);
+    }
+  };
+
+  // Submit manual FTW from Operator Entry Form with strict 9-digit NIK validation
+  const handleOperatorFormSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!formNikValidation?.isValid) {
+      setFormNotice({
+        type: 'error',
+        message: formNikValidation?.errorMessage || 'Pengisian FTW ditolak: NIK harus tepat 9 digit tanpa angka nol di depannya!'
+      });
+      return;
+    }
+
+    setFormSubmitting(true);
+    setFormNotice(null);
+
+    const targetNik = formNikValidation.cleanedNik;
+    const targetName = formName.trim().toUpperCase() || `Operator (${targetNik})`;
+    const derivedShift: 1 | 2 = (formHour >= 15 || formHour < 4) ? 2 : 1;
+    const timeStr = `${String(formHour).padStart(2, '0')}:${formMinute}`;
+
+    const newRecord: FTWRecord = {
+      id: `ftw-entry-${formDate}-${targetNik}-${Date.now()}`,
+      nik: targetNik,
+      name: targetName,
+      date: formDate,
+      shift: derivedShift,
+      status: formStatus,
+      finalDecision: formStatus === 'fit' ? 'FIT' : formStatus === 'conditional' ? 'FIT_CONDITIONAL' : formStatus === 'rest' ? 'REST_BEFORE_WORK' : 'UNFIT',
+      fatigueScore: formFatigueScore > 0 ? formFatigueScore : undefined,
+      fatigueCategory: formStatus === 'fit' ? 'NORMAL' : formStatus === 'conditional' ? 'LAPOR' : formStatus === 'rest' ? 'REST' : 'UNFIT',
+      submittedAt: new Date(`${formDate}T${timeStr}:00+07:00`).toISOString(),
+      jam: timeStr,
+      temperature: formTemp,
+      bloodPressure: formBloodPressure,
+      sleepHours: formSleep12,
+      sleepHours36: formSleep36,
+      department: 'CY & Port Operation',
+      notes: formNotes || (formStatus === 'fit' ? 'Fit Bekerja - Siap Operasi' : formStatus === 'rest' ? 'Wajib Istirahat Sebelum Bekerja' : 'Pemeriksaan Mandiri'),
+      sourceProject: 'FTW Direct Form Input (WBS)'
+    };
+
+    try {
+      // 1. Submit to external Firebase ftw-wbs
+      await writeTestExternalFtwSubmission(collectionName, {
+        nik: targetNik,
+        name: targetName,
+        date: formDate,
+        shift: derivedShift,
+        status: formStatus,
+        hour: formHour,
+        notes: newRecord.notes
+      }).catch(err => console.warn('[External FTW write notice]:', err));
+
+      // 2. Save to app state
+      onSaveRecord(newRecord);
+
+      setFormNotice({
+        type: 'success',
+        message: `Berhasil mencatat FTW untuk ${targetName} [NIK: ${targetNik}] pada ${formDate} (Shift ${derivedShift}). Status: ${formStatus.toUpperCase()}!`
+      });
+
+      // Clear or reset form
+      setFormNik('');
+      setFormName('');
+      setFormNotes('');
+    } catch (err: any) {
+      setFormNotice({
+        type: 'error',
+        message: `Terjadi kendala saat menyimpan: ${err?.message || String(err)}`
+      });
+    } finally {
+      setFormSubmitting(false);
     }
   };
 
@@ -401,6 +503,19 @@ export default function FTWOnlineModal({
               }`}>
                 {filteredRecords.length}
               </span>
+            </button>
+
+            {/* Tab: FORM INPUT FTW (VALIDASI NIK 9 DIGIT) */}
+            <button
+              onClick={() => setActiveTab('operator_entry')}
+              className={`flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-black uppercase tracking-wide font-mono transition cursor-pointer shadow-xs ${
+                activeTab === 'operator_entry'
+                  ? 'bg-indigo-600 text-white shadow-sm ring-1 ring-indigo-400'
+                  : 'bg-white text-slate-700 hover:bg-slate-50 border border-slate-300'
+              }`}
+            >
+              <ShieldCheck className="h-4 w-4 text-indigo-500" />
+              <span>FORM INPUT FTW (NIK 9 DIGIT)</span>
             </button>
 
             {/* Tab 2: GOOGLE SHEETS & SPREADSHEET INTEGRATION */}
@@ -767,8 +882,8 @@ export default function FTWOnlineModal({
                                     <span>PENGAWASAN KHUSUS</span>
                                   </span>
                                 ) : record.status === 'rest' ? (
-                                  <span className="inline-flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-full bg-orange-100 border border-orange-400 text-orange-950 font-black text-[11px] font-mono shadow-2xs animate-pulse">
-                                    <span className="w-2 h-2 rounded-full bg-orange-600" />
+                                  <span className="inline-flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-full bg-rose-100 border border-rose-400 text-rose-950 font-black text-[11px] font-mono shadow-2xs animate-pulse">
+                                    <span className="w-2 h-2 rounded-full bg-rose-600" />
                                     <span>WAJIB ISTIRAHAT</span>
                                   </span>
                                 ) : record.status === 'unfit' ? (
@@ -818,6 +933,412 @@ export default function FTWOnlineModal({
                     </span>
                   </div>
                 </div>
+              </div>
+            </div>
+          )}
+
+          {/* TAB: FORM PENGISIAN FTW OPERATOR DENGAN VALIDASI STRICT NIK 9 DIGIT */}
+          {activeTab === 'operator_entry' && (
+            <div className="max-w-3xl mx-auto space-y-6">
+              
+              {/* Header Card */}
+              <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-xs flex items-center justify-between gap-4">
+                <div className="flex items-center gap-3">
+                  <div className="p-3 bg-indigo-50 text-indigo-700 rounded-xl border border-indigo-200">
+                    <ShieldCheck className="h-6 w-6" />
+                  </div>
+                  <div>
+                    <h4 className="font-black text-slate-900 text-base uppercase font-mono tracking-tight">
+                      Formulir Pengisian Fit To Work (FTW) Operator
+                    </h4>
+                    <p className="text-xs text-slate-500 mt-0.5">
+                      Standar K3 PT. Wahana Bara Sentosa — Format digit NIK wajib tepat <strong>9 digit angka</strong> tanpa angka nol di depannya.
+                    </p>
+                  </div>
+                </div>
+                <span className="hidden sm:inline-flex px-3 py-1 rounded-full bg-indigo-50 border border-indigo-200 text-indigo-800 font-mono text-xs font-bold">
+                  SOP K3 WBS
+                </span>
+              </div>
+
+              {/* Notice Banner */}
+              {formNotice && (
+                <div className={`p-4 rounded-xl border text-xs font-bold flex items-start gap-3 shadow-xs ${
+                  formNotice.type === 'success' 
+                    ? 'bg-emerald-50 border-emerald-300 text-emerald-950' 
+                    : 'bg-rose-50 border-rose-300 text-rose-950'
+                }`}>
+                  {formNotice.type === 'success' ? (
+                    <CheckCircle2 className="h-5 w-5 text-emerald-600 shrink-0 mt-0.5" />
+                  ) : (
+                    <ShieldAlert className="h-5 w-5 text-rose-600 shrink-0 mt-0.5" />
+                  )}
+                  <div className="flex-1 leading-relaxed">{formNotice.message}</div>
+                  <button onClick={() => setFormNotice(null)} className="text-slate-400 hover:text-slate-600">
+                    <X className="h-4 w-4" />
+                  </button>
+                </div>
+              )}
+
+              {/* Form Card */}
+              <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
+                <form onSubmit={handleOperatorFormSubmit} className="space-y-5">
+                  
+                  {/* Step 1: NIK & Operator Selection */}
+                  <div className="space-y-3 pb-4 border-b border-slate-100">
+                    <div className="flex items-center justify-between">
+                      <label className="block text-xs font-black uppercase text-slate-700 font-mono tracking-wider">
+                        1. NIK &amp; Identitas Operator
+                      </label>
+                      <span className="text-[11px] text-slate-400 font-mono font-bold">
+                        Wajib 9 Digit Angka
+                      </span>
+                    </div>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      <div>
+                        <label className="block text-[10px] font-bold text-slate-500 uppercase font-mono mb-1">
+                          Pilih Operator Terdaftar (Opsional):
+                        </label>
+                        <select
+                          value={formNik}
+                          onChange={(e) => {
+                            const val = e.target.value;
+                            setFormNik(val);
+                            const matched = employees.find(em => em.nrp === val);
+                            if (matched) setFormName(matched.name);
+                          }}
+                          className="w-full bg-slate-50 border border-slate-300 rounded-lg px-3 py-2 text-xs font-bold text-slate-800 focus:outline-none focus:border-indigo-500 cursor-pointer"
+                        >
+                          <option value="">-- Ketik NIK Manual atau Pilih di Bawah --</option>
+                          {employees.map(e => (
+                            <option key={e.id} value={e.nrp}>
+                              {e.name} [NIK: {e.nrp}] - {e.rosterPattern}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+
+                      <div>
+                        <label className="block text-[10px] font-bold text-slate-500 uppercase font-mono mb-1">
+                          Input NIK Manual (Format: 9 Digit Angka):
+                        </label>
+                        <input
+                          type="text"
+                          value={formNik}
+                          onChange={(e) => {
+                            const val = e.target.value.toUpperCase();
+                            setFormNik(val);
+                            const matched = employees.find(em => isNikMatch(em.nrp, val));
+                            if (matched && !formName) setFormName(matched.name);
+                          }}
+                          placeholder="Misal: 256900117 atau 266900047"
+                          className={`w-full bg-slate-50 border rounded-lg px-3 py-2 text-xs font-mono font-bold text-slate-900 focus:outline-none transition ${
+                            formNikValidation?.hasLeadingZero
+                              ? 'border-amber-400 bg-amber-50/50 text-amber-950 focus:border-amber-500'
+                              : formNikValidation?.isAbnormalLength
+                              ? 'border-rose-400 bg-rose-50/50 text-rose-950 focus:border-rose-500'
+                              : formNikValidation?.isValid
+                              ? 'border-emerald-500 bg-emerald-50/40 text-emerald-950 focus:border-emerald-600'
+                              : 'border-slate-300 focus:border-indigo-500'
+                          }`}
+                        />
+                      </div>
+                    </div>
+
+                    {/* LIVE INTERACTIVE VALIDATION BANNERS */}
+                    {formNikValidation && (
+                      <div className="space-y-2 pt-1">
+                        {/* 1. Leading zero notice */}
+                        {formNikValidation.hasLeadingZero && (
+                          <div className="p-3 bg-amber-50 border border-amber-300 rounded-xl text-amber-950 text-xs shadow-2xs">
+                            <div className="flex items-start gap-2.5">
+                              <AlertTriangle className="h-4 w-4 text-amber-600 shrink-0 mt-0.5" />
+                              <div className="flex-1">
+                                <p className="font-bold text-[11px] text-amber-950">
+                                  ⚠️ Pemberitahuan NIK: NIK Tidak Boleh Diawali Angka Nol (0)
+                                </p>
+                                <p className="text-[11px] mt-0.5 text-amber-800 leading-snug">
+                                  Harap mengisi NIK yang benar di input NIK tanpa angka nol di depan.
+                                </p>
+                                {formNikValidation.suggestedNik && (
+                                  <button
+                                    type="button"
+                                    onClick={() => setFormNik(formNikValidation.suggestedNik)}
+                                    className="mt-2 inline-flex items-center gap-1.5 px-3 py-1 bg-amber-600 hover:bg-amber-700 text-white rounded-lg text-[11px] font-bold transition shadow-xs cursor-pointer"
+                                  >
+                                    <span>Gunakan NIK tanpa nol:</span>
+                                    <span className="font-mono underline">{formNikValidation.suggestedNik}</span>
+                                  </button>
+                                )}
+                              </div>
+                            </div>
+                          </div>
+                        )}
+
+                        {/* 2. Abnormal length warning */}
+                        {formNikValidation.isAbnormalLength && !formNikValidation.hasLeadingZero && (
+                          <div className="p-3 bg-rose-50 border border-rose-300 rounded-xl text-rose-950 text-xs shadow-2xs">
+                            <div className="flex items-start gap-2.5">
+                              <ShieldAlert className="h-4 w-4 text-rose-600 shrink-0 mt-0.5" />
+                              <div>
+                                <p className="font-bold text-[11px] text-rose-950">
+                                  🚫 Peringatan K3: Jumlah Digit NIK Abnormal ({formNikValidation.digitCount} Digit)!
+                                </p>
+                                <p className="text-[11px] mt-0.5 text-rose-800 leading-snug">
+                                  <strong>Tidak boleh mengisi FTW!</strong> Format digit NIK wajib tepat 9 digit angka tanpa angka nol di depannya (contoh: 256900117 atau 266900047).
+                                </p>
+                              </div>
+                            </div>
+                          </div>
+                        )}
+
+                        {/* 3. Non-digit character warning */}
+                        {formNikValidation.hasNonDigits && (
+                          <div className="p-2.5 bg-rose-50 border border-rose-300 rounded-lg text-rose-900 text-xs flex items-center gap-2">
+                            <AlertCircle className="h-4 w-4 text-rose-600 shrink-0" />
+                            <span className="text-[11px] font-bold">{formNikValidation.errorMessage}</span>
+                          </div>
+                        )}
+
+                        {/* 4. Valid 9 digit check */}
+                        {formNikValidation.isValid && (
+                          <div className="p-2.5 bg-emerald-50 border border-emerald-300 rounded-xl text-emerald-950 text-xs font-bold flex items-center gap-2">
+                            <Check className="h-4 w-4 text-emerald-600 shrink-0" />
+                            <span>Format NIK Valid (Tepat 9 Digit): <strong className="font-mono">{formNikValidation.cleanedNik}</strong></span>
+                          </div>
+                        )}
+                      </div>
+                    )}
+
+                    <div>
+                      <label className="block text-[10px] font-bold text-slate-500 uppercase font-mono mb-1">
+                        Nama Lengkap Operator:
+                      </label>
+                      <input
+                        type="text"
+                        value={formName}
+                        onChange={(e) => setFormName(e.target.value.toUpperCase())}
+                        placeholder="Contoh: SIDIR ALI atau DODI HARYADI"
+                        className="w-full bg-slate-50 border border-slate-300 rounded-lg px-3 py-2 text-xs font-bold text-slate-800 focus:outline-none focus:border-indigo-500 uppercase"
+                      />
+                    </div>
+                  </div>
+
+                  {/* Step 2: Waktu, Tanggal & Jam */}
+                  <div className="space-y-3 pb-4 border-b border-slate-100">
+                    <label className="block text-xs font-black uppercase text-slate-700 font-mono tracking-wider">
+                      2. Waktu &amp; Shift Operasi
+                    </label>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                      <div>
+                        <label className="block text-[10px] font-bold text-slate-500 uppercase font-mono mb-1">
+                          Tanggal Pengisian:
+                        </label>
+                        <input
+                          type="date"
+                          value={formDate}
+                          onChange={(e) => setFormDate(e.target.value)}
+                          className="w-full bg-slate-50 border border-slate-300 rounded-lg px-3 py-1.5 text-xs font-mono font-bold text-slate-800 focus:outline-none focus:border-indigo-500"
+                        />
+                      </div>
+
+                      <div>
+                        <label className="block text-[10px] font-bold text-slate-500 uppercase font-mono mb-1">
+                          Jam Pengisian (WIB):
+                        </label>
+                        <div className="flex items-center gap-1.5">
+                          <select
+                            value={formHour}
+                            onChange={(e) => setFormHour(Number(e.target.value))}
+                            className="w-1/2 bg-slate-50 border border-slate-300 rounded-lg px-2 py-1.5 text-xs font-mono font-bold cursor-pointer"
+                          >
+                            {Array.from({ length: 24 }).map((_, i) => (
+                              <option key={i} value={i}>
+                                {String(i).padStart(2, '0')} {i >= 15 || i < 4 ? '(Malam)' : '(Siang)'}
+                              </option>
+                            ))}
+                          </select>
+                          <span className="font-bold">:</span>
+                          <select
+                            value={formMinute}
+                            onChange={(e) => setFormMinute(e.target.value)}
+                            className="w-1/2 bg-slate-50 border border-slate-300 rounded-lg px-2 py-1.5 text-xs font-mono font-bold cursor-pointer"
+                          >
+                            <option value="00">00</option>
+                            <option value="15">15</option>
+                            <option value="30">30</option>
+                            <option value="45">45</option>
+                          </select>
+                        </div>
+                      </div>
+
+                      <div>
+                        <label className="block text-[10px] font-bold text-slate-500 uppercase font-mono mb-1">
+                          Alokasi Shift Otomatis:
+                        </label>
+                        <div className={`p-2 rounded-lg border font-mono text-xs font-black flex items-center gap-2 ${
+                          (formHour >= 15 || formHour < 4)
+                            ? 'bg-indigo-50 border-indigo-200 text-indigo-900'
+                            : 'bg-amber-50 border-amber-200 text-amber-900'
+                        }`}>
+                          {(formHour >= 15 || formHour < 4) ? (
+                            <>
+                              <Moon className="h-4 w-4 text-indigo-600" />
+                              <span>Shift 2 (Malam)</span>
+                            </>
+                          ) : (
+                            <>
+                              <Sun className="h-4 w-4 text-amber-600" />
+                              <span>Shift 1 (Siang)</span>
+                            </>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Step 3: Status Kelayakan Medis */}
+                  <div className="space-y-3 pb-4 border-b border-slate-100">
+                    <label className="block text-xs font-black uppercase text-slate-700 font-mono tracking-wider">
+                      3. Rekomendasi &amp; Pemeriksaan Fisik
+                    </label>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      <div>
+                        <label className="block text-[10px] font-bold text-slate-500 uppercase font-mono mb-1">
+                          Keputusan Kelayakan FTW:
+                        </label>
+                        <select
+                          value={formStatus}
+                          onChange={(e) => setFormStatus(e.target.value as any)}
+                          className="w-full bg-slate-50 border border-slate-300 rounded-lg px-3 py-2 text-xs font-bold text-slate-900 focus:outline-none focus:border-indigo-500 cursor-pointer"
+                        >
+                          <option value="fit">🟢 FIT TO WORK (Layak Bekerja)</option>
+                          <option value="conditional">🟡 PENGAWASAN KHUSUS (Fit Bersyarat)</option>
+                          <option value="rest">🔴 WAJIB ISTIRAHAT SEBELUM BEKERJA</option>
+                          <option value="unfit">⛔ TIDAK BOLEH BEKERJA (UNFIT)</option>
+                        </select>
+                      </div>
+
+                      <div>
+                        <label className="block text-[10px] font-bold text-slate-500 uppercase font-mono mb-1">
+                          Skor Fatigue (0 = Normal, 1-10 = Waspada, &gt;10 = Istirahat):
+                        </label>
+                        <input
+                          type="number"
+                          min={0}
+                          max={100}
+                          value={formFatigueScore}
+                          onChange={(e) => setFormFatigueScore(Number(e.target.value) || 0)}
+                          className="w-full bg-slate-50 border border-slate-300 rounded-lg px-3 py-1.5 text-xs font-mono font-bold text-slate-800"
+                        />
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 pt-1">
+                      <div>
+                        <label className="block text-[10px] font-bold text-slate-500 uppercase font-mono mb-1">
+                          Tidur 12 Jam:
+                        </label>
+                        <input
+                          type="number"
+                          step="0.5"
+                          value={formSleep12}
+                          onChange={(e) => setFormSleep12(Number(e.target.value) || 0)}
+                          className="w-full bg-slate-50 border border-slate-300 rounded-lg px-2.5 py-1.5 text-xs font-mono font-bold"
+                        />
+                      </div>
+
+                      <div>
+                        <label className="block text-[10px] font-bold text-slate-500 uppercase font-mono mb-1">
+                          Tidur 36 Jam:
+                        </label>
+                        <input
+                          type="number"
+                          step="0.5"
+                          value={formSleep36}
+                          onChange={(e) => setFormSleep36(Number(e.target.value) || 0)}
+                          className="w-full bg-slate-50 border border-slate-300 rounded-lg px-2.5 py-1.5 text-xs font-mono font-bold"
+                        />
+                      </div>
+
+                      <div>
+                        <label className="block text-[10px] font-bold text-slate-500 uppercase font-mono mb-1">
+                          Suhu (°C):
+                        </label>
+                        <input
+                          type="number"
+                          step="0.1"
+                          value={formTemp}
+                          onChange={(e) => setFormTemp(Number(e.target.value) || 36.5)}
+                          className="w-full bg-slate-50 border border-slate-300 rounded-lg px-2.5 py-1.5 text-xs font-mono font-bold"
+                        />
+                      </div>
+
+                      <div>
+                        <label className="block text-[10px] font-bold text-slate-500 uppercase font-mono mb-1">
+                          Tekanan Darah:
+                        </label>
+                        <input
+                          type="text"
+                          value={formBloodPressure}
+                          onChange={(e) => setFormBloodPressure(e.target.value)}
+                          placeholder="120/80"
+                          className="w-full bg-slate-50 border border-slate-300 rounded-lg px-2.5 py-1.5 text-xs font-mono font-bold"
+                        />
+                      </div>
+                    </div>
+
+                    <div>
+                      <label className="block text-[10px] font-bold text-slate-500 uppercase font-mono mb-1">
+                        Catatan Medis / Keluhan Operator:
+                      </label>
+                      <input
+                        type="text"
+                        value={formNotes}
+                        onChange={(e) => setFormNotes(e.target.value)}
+                        placeholder="Misal: Fit siap kerja / pusing ringan / wajib istirahat"
+                        className="w-full bg-slate-50 border border-slate-300 rounded-lg px-3 py-1.5 text-xs text-slate-800"
+                      />
+                    </div>
+                  </div>
+
+                  {/* Submit Actions */}
+                  <div className="flex flex-col sm:flex-row items-center justify-between gap-3 pt-2">
+                    <div className="text-[11px] text-slate-500 font-mono">
+                      * Data tersimpan aman di database lokal &amp; disinkronkan ke server FTW.
+                    </div>
+
+                    <button
+                      type="submit"
+                      disabled={formSubmitting || !formNikValidation?.isValid}
+                      className={`w-full sm:w-auto px-6 py-2.5 font-bold rounded-xl text-xs transition flex items-center justify-center gap-2 shadow-xs ${
+                        !formNikValidation?.isValid
+                          ? 'bg-slate-200 text-slate-400 border border-slate-300 cursor-not-allowed opacity-80'
+                          : 'bg-indigo-600 hover:bg-indigo-700 text-white cursor-pointer shadow-indigo-200'
+                      }`}
+                    >
+                      {formSubmitting ? (
+                        <>
+                          <RefreshCw className="h-4 w-4 animate-spin" />
+                          <span>Menyimpan ke Sistem FTW...</span>
+                        </>
+                      ) : !formNikValidation?.isValid ? (
+                        <>
+                          <ShieldAlert className="h-4 w-4 text-rose-500" />
+                          <span>Dilarang Mengisi (NIK Tidak Valid)</span>
+                        </>
+                      ) : (
+                        <>
+                          <Check className="h-4 w-4" />
+                          <span>Simpan &amp; Verifikasi FTW Operator</span>
+                        </>
+                      )}
+                    </button>
+                  </div>
+                </form>
               </div>
             </div>
           )}
