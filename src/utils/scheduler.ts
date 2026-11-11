@@ -69,22 +69,40 @@ export function calculateShift(setting: UnitSetting, targetDateStr: string): Shi
   
   // Pattern 2: 13-1 Roster (14-day cycle)
   if (setting.rosterPattern === '13-1') {
-    // A 14-day staggered cycle:
-    // Day 0 to 6 (7 days): Op 1 = S, Op 2 = M
-    // Day 7 (1 day): Op 1 = M, Op 2 = OFF (hari ke-8 off untuk Op 2, Op 1 beralih ke malam)
-    // Day 8 to 12 (5 days): Op 1 = M, Op 2 = S
-    // Day 13 (1 day): Op 1 = OFF, Op 2 = S
     const cycleLength = 14;
     const index = ((daysDiff % cycleLength) + cycleLength) % cycleLength;
+    const isDay7Malam = setting.roster13_1Day7Shift === 'malam';
     
-    if (index >= 0 && index <= 6) {
-      return { operator1Role: 'S', operator2Role: 'M' };
-    } else if (index === 7) {
-      return { operator1Role: 'M', operator2Role: 'OFF' };
-    } else if (index >= 8 && index <= 12) {
-      return { operator1Role: 'M', operator2Role: 'S' };
-    } else { // index === 13
-      return { operator1Role: 'OFF', operator2Role: 'S' };
+    if (isDay7Malam) {
+      // Skema Hari ke-7 disetel Shift Malam:
+      // Day 0 to 5 (Hari 1-6): Op 1 = S, Op 2 = M
+      // Day 6 (Hari ke-7): Op 1 = M, Op 2 = OFF (Op 1 mulai Malam, Op 2 OFF)
+      // Day 7 to 12 (Hari 8-13): Op 1 = M, Op 2 = S (Op 1 tetap Malam, Op 2 mulai Siang)
+      // Day 13 (Hari ke-14): Op 1 = OFF, Op 2 = S (Op 1 OFF, Op 2 tetap Siang)
+      if (index >= 0 && index <= 5) {
+        return { operator1Role: 'S', operator2Role: 'M' };
+      } else if (index === 6) {
+        return { operator1Role: 'M', operator2Role: 'OFF' };
+      } else if (index >= 7 && index <= 12) {
+        return { operator1Role: 'M', operator2Role: 'S' };
+      } else { // index === 13
+        return { operator1Role: 'OFF', operator2Role: 'S' };
+      }
+    } else {
+      // Skema Standar (Hari ke-7 disetel Shift Siang):
+      // Day 0 to 6 (Hari 1-7): Op 1 = S, Op 2 = M (Hari ke-7 Op 1 Siang, Op 2 Malam)
+      // Day 7 (Hari ke-8): Op 1 = M, Op 2 = OFF (Op 1 mulai Malam, Op 2 OFF)
+      // Day 8 to 12 (Hari 9-13): Op 1 = M, Op 2 = S
+      // Day 13 (Hari ke-14): Op 1 = OFF, Op 2 = S (Op 1 OFF, Op 2 tetap Siang)
+      if (index >= 0 && index <= 6) {
+        return { operator1Role: 'S', operator2Role: 'M' };
+      } else if (index === 7) {
+        return { operator1Role: 'M', operator2Role: 'OFF' };
+      } else if (index >= 8 && index <= 12) {
+        return { operator1Role: 'M', operator2Role: 'S' };
+      } else { // index === 13
+        return { operator1Role: 'OFF', operator2Role: 'S' };
+      }
     }
   }
   

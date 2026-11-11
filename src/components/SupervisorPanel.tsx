@@ -146,6 +146,7 @@ export default function SupervisorPanel({
   const [setOp1Id, setSetOp1Id] = useState('');
   const [setOp2Id, setSetOp2Id] = useState('');
   const [setRosterPattern, setSetRosterPattern] = useState<UnitSetting['rosterPattern']>('6-1');
+  const [setRoster13_1Day7Shift, setSetRoster13_1Day7Shift] = useState<'siang' | 'malam'>('siang');
   const [setFixedOffDay, setSetFixedOffDay] = useState(0); // 0 = Sunday
   const [setStartSiangDate, setSetStartSiangDate] = useState('2026-06-01');
   const [setBackupPriorityType1, setSetBackupPriorityType1] = useState('');
@@ -531,6 +532,7 @@ export default function SupervisorPanel({
             operator1Id: setOp1Id,
             operator2Id: setOp2Id,
             rosterPattern: setRosterPattern,
+            roster13_1Day7Shift: setRosterPattern === '13-1' ? setRoster13_1Day7Shift : undefined,
             fixedOffDayOfWeek: setFixedOffDay,
             startSiangDate: setStartSiangDate,
             backupPriorityType1: isMaster ? setBackupPriorityType1 : undefined,
@@ -549,6 +551,7 @@ export default function SupervisorPanel({
         operator1Id: setOp1Id,
         operator2Id: setOp2Id,
         rosterPattern: setRosterPattern,
+        roster13_1Day7Shift: setRosterPattern === '13-1' ? setRoster13_1Day7Shift : undefined,
         fixedOffDayOfWeek: setFixedOffDay,
         startSiangDate: setStartSiangDate,
         backupPriorityType1: isMaster ? setBackupPriorityType1 : undefined,
@@ -570,6 +573,7 @@ export default function SupervisorPanel({
     setSetOp1Id('');
     setSetOp2Id('');
     setSetRosterPattern('6-1');
+    setSetRoster13_1Day7Shift('siang');
     setSetFixedOffDay(0);
     setSetStartSiangDate('2026-06-01');
     setSetBackupPriorityType1('');
@@ -610,6 +614,7 @@ export default function SupervisorPanel({
     setSetOp1Id(s.operator1Id);
     setSetOp2Id(s.operator2Id);
     setSetRosterPattern(s.rosterPattern);
+    setSetRoster13_1Day7Shift(s.roster13_1Day7Shift || 'siang');
     setSetFixedOffDay(s.fixedOffDayOfWeek);
     setSetStartSiangDate(s.startSiangDate);
     setSetBackupPriorityType1(s.backupPriorityType1 || '');
@@ -1862,6 +1867,79 @@ export default function SupervisorPanel({
                         </div>
                       )}
 
+                      {/* Pengaturan Shift Hari Ke-7 (Khusus Roster 13-1) */}
+                      {setRosterPattern === '13-1' && (
+                        <div className="col-span-1 sm:col-span-2 md:col-span-3 bg-amber-50/70 border border-amber-300/80 rounded-xl p-4 shadow-xs">
+                          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-1 mb-2">
+                            <label className="text-xs uppercase text-amber-900 font-extrabold font-mono flex items-center gap-1.5">
+                              <span className="w-2 h-2 rounded-full bg-amber-500 animate-pulse" />
+                              6. Pengaturan Shift Hari Ke-7 (Pola Roster 13-1)
+                            </label>
+                            <span className="text-[11px] font-black uppercase font-mono px-2.5 py-0.5 rounded-full border bg-white border-amber-300 text-amber-800 shadow-xs inline-block">
+                              Pilihan: {setRoster13_1Day7Shift === 'malam' ? '🌙 Shift Malam' : '☀️ Shift Siang'}
+                            </span>
+                          </div>
+                          
+                          <p className="text-xs text-amber-800/80 mb-3 leading-relaxed">
+                            Tentukan apakah penugasan pada <strong>Hari ke-7 siklus</strong> berjalan sebagai <strong>Shift Siang</strong> (standar) atau langsung beralih ke <strong>Shift Malam</strong>:
+                          </p>
+
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                            <button
+                              type="button"
+                              onClick={() => setSetRoster13_1Day7Shift('siang')}
+                              className={`p-3 rounded-lg border text-left cursor-pointer transition-all flex flex-col gap-1.5 ${
+                                setRoster13_1Day7Shift === 'siang'
+                                  ? 'bg-white border-amber-500 ring-2 ring-amber-400/50 shadow-sm'
+                                  : 'bg-white/60 border-amber-200/60 hover:bg-white text-slate-600'
+                              }`}
+                            >
+                              <div className="flex items-center justify-between">
+                                <span className="text-xs font-black text-amber-900 flex items-center gap-1.5">
+                                  ☀️ Shift Siang (Standar)
+                                </span>
+                                {setRoster13_1Day7Shift === 'siang' && (
+                                  <span className="text-[10px] font-extrabold text-amber-700 bg-amber-100 px-2 py-0.5 rounded">
+                                    Aktif
+                                  </span>
+                                )}
+                              </div>
+                              <p className="text-[11px] text-slate-600 leading-normal">
+                                • <strong>Hari ke-7:</strong> Op 1 tetap <strong>Shift Siang</strong>, Op 2 <strong>Shift Malam</strong>.<br />
+                                • <strong>Hari ke-8:</strong> Op 2 OFF (libur), Op 1 mulai Shift Malam.<br />
+                                • <strong>Hari ke-14:</strong> Op 1 OFF, Op 2 Shift Siang.
+                              </p>
+                            </button>
+
+                            <button
+                              type="button"
+                              onClick={() => setSetRoster13_1Day7Shift('malam')}
+                              className={`p-3 rounded-lg border text-left cursor-pointer transition-all flex flex-col gap-1.5 ${
+                                setRoster13_1Day7Shift === 'malam'
+                                  ? 'bg-white border-indigo-500 ring-2 ring-indigo-400/50 shadow-sm'
+                                  : 'bg-white/60 border-amber-200/60 hover:bg-white text-slate-600'
+                              }`}
+                            >
+                              <div className="flex items-center justify-between">
+                                <span className="text-xs font-black text-indigo-900 flex items-center gap-1.5">
+                                  🌙 Shift Malam
+                                </span>
+                                {setRoster13_1Day7Shift === 'malam' && (
+                                  <span className="text-[10px] font-extrabold text-indigo-700 bg-indigo-100 px-2 py-0.5 rounded">
+                                    Aktif
+                                  </span>
+                                )}
+                              </div>
+                              <p className="text-[11px] text-slate-600 leading-normal">
+                                • <strong>Hari ke-7:</strong> Op 1 langsung masuk <strong>Shift Malam</strong>, Op 2 <strong>OFF (libur)</strong>.<br />
+                                • <strong>Hari ke-8 - 13:</strong> Op 1 Shift Malam, Op 2 Shift Siang.<br />
+                                • <strong>Hari ke-14:</strong> Op 1 OFF, Op 2 Shift Siang.
+                              </p>
+                            </button>
+                          </div>
+                        </div>
+                      )}
+
                       {/* Backup Allocation Priorities (Only for Operator Master Settings) */}
                       {setGroupId === 'master' && (
                         <div className="col-span-1 sm:col-span-2 md:col-span-3 mt-2 bg-amber-500/5 border border-amber-500/15 p-4 rounded-lg space-y-4">
@@ -2420,9 +2498,30 @@ export default function SupervisorPanel({
                           <div className="flex items-center justify-between sm:justify-end gap-3 shrink-0">
                             <div className="text-left sm:text-right font-mono">
                               <span className="text-[9px] font-black uppercase tracking-widest text-slate-400 block">Siklus Rota</span>
-                              <span className="text-[10px] font-extrabold text-slate-600 uppercase bg-slate-100 border border-slate-200 px-2 py-0.5 rounded-sm">
-                                {setting.rosterPattern === 'weekly-fixed' ? `Off Mingguan` : `Roster ${setting.rosterPattern}`}
-                              </span>
+                              <div className="flex items-center gap-1.5 justify-start sm:justify-end">
+                                <span className="text-[10px] font-extrabold text-slate-600 uppercase bg-slate-100 border border-slate-200 px-2 py-0.5 rounded-sm">
+                                  {setting.rosterPattern === 'weekly-fixed' ? `Off Mingguan` : `Roster ${setting.rosterPattern}`}
+                                </span>
+                                {setting.rosterPattern === '13-1' && (
+                                  <button
+                                    type="button"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      const nextShift: 'siang' | 'malam' = setting.roster13_1Day7Shift === 'malam' ? 'siang' : 'malam';
+                                      setSettings(prev => prev.map(s => s.id === setting.id ? { ...s, roster13_1Day7Shift: nextShift } : s));
+                                    }}
+                                    title="Klik untuk mengubah setelan shift hari ke-7 (Siang / Malam)"
+                                    className={`text-[9.5px] font-extrabold px-2 py-0.5 rounded border transition cursor-pointer flex items-center gap-1 shadow-2xs ${
+                                      setting.roster13_1Day7Shift === 'malam'
+                                        ? 'bg-indigo-50 border-indigo-300 text-indigo-700 hover:bg-indigo-100'
+                                        : 'bg-amber-50 border-amber-300 text-amber-800 hover:bg-amber-100'
+                                    }`}
+                                  >
+                                    <span>H-7: {setting.roster13_1Day7Shift === 'malam' ? '🌙 Malam' : '☀️ Siang'}</span>
+                                    <span className="text-[8px] text-slate-400">⇄</span>
+                                  </button>
+                                )}
+                              </div>
                             </div>
                             <div className="flex items-center gap-2">
                               <button
@@ -2455,8 +2554,41 @@ export default function SupervisorPanel({
                                   Menampilkan skema penugasan mulai <strong>{formatIndonesianDate(previewStartDate)}</strong>.
                                 </p>
                               </div>
-                              <div className="text-[10px] text-slate-550 font-mono font-bold">
-                                Tanggal Acuan Siklus: {formatIndonesianDate(setting.startSiangDate)}
+                              <div className="flex flex-wrap items-center gap-2.5">
+                                {setting.rosterPattern === '13-1' && (
+                                  <div className="flex items-center gap-1.5 bg-white border border-slate-200 px-2.5 py-1 rounded-md text-[11px] font-mono shadow-xs">
+                                    <span className="text-slate-500 font-bold">Hari ke-7:</span>
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        setSettings(prev => prev.map(s => s.id === setting.id ? { ...s, roster13_1Day7Shift: 'siang' } : s));
+                                      }}
+                                      className={`px-2 py-0.5 rounded text-[10px] font-extrabold cursor-pointer transition ${
+                                        setting.roster13_1Day7Shift !== 'malam'
+                                          ? 'bg-amber-500 text-white shadow-xs'
+                                          : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                                      }`}
+                                    >
+                                      ☀️ Siang
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        setSettings(prev => prev.map(s => s.id === setting.id ? { ...s, roster13_1Day7Shift: 'malam' } : s));
+                                      }}
+                                      className={`px-2 py-0.5 rounded text-[10px] font-extrabold cursor-pointer transition ${
+                                        setting.roster13_1Day7Shift === 'malam'
+                                          ? 'bg-indigo-600 text-white shadow-xs'
+                                          : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                                      }`}
+                                    >
+                                      🌙 Malam
+                                    </button>
+                                  </div>
+                                )}
+                                <div className="text-[10px] text-slate-550 font-mono font-bold bg-white px-2 py-1 rounded border border-slate-200">
+                                  Tanggal Acuan: {formatIndonesianDate(setting.startSiangDate)}
+                                </div>
                               </div>
                             </div>
 
@@ -2589,7 +2721,11 @@ export default function SupervisorPanel({
                                 <span className="font-extrabold text-slate-700">Keterangan Aturan Roster:</span>
                                 <p className="leading-relaxed">
                                   {setting.rosterPattern === '6-1' && 'Pola Roster 6-1: Bekerja 6 hari bertuntutan, disusul 1 hari lurus OFF bersama. Sepulangnya dari hari off, shift tugas antara Operator 1 & 2 ditukar secara otomatis (Siang ⇄ Malam).'}
-                                  {setting.rosterPattern === '13-1' && 'Pola Roster 13-1: Masing-masing operator bekerja 13 hari dan libur 1 hari secara bergantian. Pada hari ke-8, Operator 2 OFF dan Operator 1 beralih ke malam. Pada hari ke-14, Operator 1 OFF dan Operator 2 bekerja siang.'}
+                                  {setting.rosterPattern === '13-1' && (
+                                    setting.roster13_1Day7Shift === 'malam'
+                                      ? 'Pola Roster 13-1 (Hari ke-7: Shift Malam): Masing-masing operator bekerja 13 hari dan libur 1 hari bergantian. Pada hari ke-7 siklus, Operator 1 langsung beralih ke Shift Malam dan Operator 2 OFF (libur). Hari ke-8 hingga ke-13: Operator 1 Malam & Operator 2 Siang. Hari ke-14: Operator 1 OFF & Operator 2 Siang.'
+                                      : 'Pola Roster 13-1 (Hari ke-7: Shift Siang): Masing-masing operator bekerja 13 hari dan libur 1 hari bergantian. Pada hari ke-7 siklus, Operator 1 masih Shift Siang dan Operator 2 Shift Malam. Pada hari ke-8: Operator 2 OFF (libur) & Operator 1 beralih ke Shift Malam. Hari ke-14: Operator 1 OFF & Operator 2 Siang.'
+                                  )}
                                   {setting.rosterPattern === 'weekly-fixed' && 'Pola Roster Hari Off Mingguan: Unit dan operator diliburkan tetap (OFF) seminggu sekali pada hari tetap pilihan pengawas. Pergantian shift siang & malam berlangsung stabil di hari berikutnya.'}
                                 </p>
                               </div>

@@ -34,6 +34,7 @@ export interface UnitSetting {
   operator1Id: string;    // references Employee.id
   operator2Id: string;    // references Employee.id
   rosterPattern: '6-1' | '13-1' | 'weekly-fixed';
+  roster13_1Day7Shift?: 'siang' | 'malam'; // Pengaturan shift hari ke-7 untuk roster 13-1 (default: 'siang')
   fixedOffDayOfWeek: number; // 0 = Sunday, 1 = Monday, ..., 6 = Saturday (used only if rosterPattern is weekly-fixed)
   startSiangDate: string;    // YYYY-MM-DD (the reference start date where Operator 1 is Day Shift (Siang) and Operator 2 is Night Shift (Malam))
   backupPriorityType1?: string;
