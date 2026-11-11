@@ -1896,7 +1896,7 @@ export default function SupervisorPanel({
                             >
                               <div className="flex items-center justify-between">
                                 <span className="text-xs font-black text-amber-900 flex items-center gap-1.5">
-                                  ☀️ Shift Siang (Standar)
+                                  ☀️ Shift Siang (7 Siang, 6 Malam)
                                 </span>
                                 {setRoster13_1Day7Shift === 'siang' && (
                                   <span className="text-[10px] font-extrabold text-amber-700 bg-amber-100 px-2 py-0.5 rounded">
@@ -1905,9 +1905,9 @@ export default function SupervisorPanel({
                                 )}
                               </div>
                               <p className="text-[11px] text-slate-600 leading-normal">
-                                • <strong>Hari ke-7:</strong> Op 1 tetap <strong>Shift Siang</strong>, Op 2 <strong>Shift Malam</strong>.<br />
-                                • <strong>Hari ke-8:</strong> Op 2 OFF (libur), Op 1 mulai Shift Malam.<br />
-                                • <strong>Hari ke-14:</strong> Op 1 OFF, Op 2 Shift Siang.
+                                • <strong>Total Roster Operator:</strong> 7 hari Siang, 6 hari Malam, 1 hari OFF.<br />
+                                • <strong>Hari ke-7:</strong> Op 1 tetap <strong>Shift Siang</strong> (Siang ke-7), Op 2 <strong>OFF</strong>.<br />
+                                • <strong>Hari ke-14:</strong> Op 1 <strong>OFF</strong>, Op 2 tetap <strong>Shift Siang</strong> (Siang ke-7).
                               </p>
                             </button>
 
@@ -1922,7 +1922,7 @@ export default function SupervisorPanel({
                             >
                               <div className="flex items-center justify-between">
                                 <span className="text-xs font-black text-indigo-900 flex items-center gap-1.5">
-                                  🌙 Shift Malam
+                                  🌙 Shift Malam (6 Siang, 7 Malam)
                                 </span>
                                 {setRoster13_1Day7Shift === 'malam' && (
                                   <span className="text-[10px] font-extrabold text-indigo-700 bg-indigo-100 px-2 py-0.5 rounded">
@@ -1931,9 +1931,9 @@ export default function SupervisorPanel({
                                 )}
                               </div>
                               <p className="text-[11px] text-slate-600 leading-normal">
-                                • <strong>Hari ke-7:</strong> Op 1 langsung masuk <strong>Shift Malam</strong>, Op 2 <strong>OFF (libur)</strong>.<br />
-                                • <strong>Hari ke-8 - 13:</strong> Op 1 Shift Malam, Op 2 Shift Siang.<br />
-                                • <strong>Hari ke-14:</strong> Op 1 OFF, Op 2 Shift Siang.
+                                • <strong>Total Roster Operator:</strong> 6 hari Siang, 7 hari Malam, 1 hari OFF.<br />
+                                • <strong>Hari ke-7:</strong> Op 1 beralih ke <strong>Shift Malam</strong> (Malam ke-1), Op 2 <strong>OFF</strong>.<br />
+                                • <strong>Hari ke-14:</strong> Op 1 <strong>OFF</strong>, Op 2 beralih ke <strong>Shift Malam</strong> (Malam ke-1).
                               </p>
                             </button>
                           </div>
@@ -2723,8 +2723,8 @@ export default function SupervisorPanel({
                                   {setting.rosterPattern === '6-1' && 'Pola Roster 6-1: Bekerja 6 hari bertuntutan, disusul 1 hari lurus OFF bersama. Sepulangnya dari hari off, shift tugas antara Operator 1 & 2 ditukar secara otomatis (Siang ⇄ Malam).'}
                                   {setting.rosterPattern === '13-1' && (
                                     setting.roster13_1Day7Shift === 'malam'
-                                      ? 'Pola Roster 13-1 (Hari ke-7: Shift Malam): Masing-masing operator bekerja 13 hari dan libur 1 hari bergantian. Pada hari ke-7 siklus, Operator 1 langsung beralih ke Shift Malam dan Operator 2 OFF (libur). Hari ke-8 hingga ke-13: Operator 1 Malam & Operator 2 Siang. Hari ke-14: Operator 1 OFF & Operator 2 Siang.'
-                                      : 'Pola Roster 13-1 (Hari ke-7: Shift Siang): Masing-masing operator bekerja 13 hari dan libur 1 hari bergantian. Pada hari ke-7 siklus, Operator 1 masih Shift Siang dan Operator 2 Shift Malam. Pada hari ke-8: Operator 2 OFF (libur) & Operator 1 beralih ke Shift Malam. Hari ke-14: Operator 1 OFF & Operator 2 Siang.'
+                                      ? 'Pola Roster 13-1 (Hari ke-7: Shift Malam, Total: 6 Siang 7 Malam): Kedua operator bekerja total 6 hari Siang dan 7 hari Malam serta 1 hari OFF. Pada hari ke-7 siklus, Operator 1 beralih ke Shift Malam dan Operator 2 OFF. Pada hari ke-14 siklus, Operator 1 OFF dan Operator 2 beralih ke Shift Malam.'
+                                      : 'Pola Roster 13-1 (Hari ke-7: Shift Siang, Total: 7 Siang 6 Malam): Kedua operator bekerja total 7 hari Siang dan 6 hari Malam serta 1 hari OFF. Pada hari ke-7 siklus, Operator 1 tetap Shift Siang (hari ke-7 Siang) dan Operator 2 OFF. Pada hari ke-14 siklus, Operator 1 OFF dan Operator 2 tetap Shift Siang (hari ke-7 Siang).'
                                   )}
                                   {setting.rosterPattern === 'weekly-fixed' && 'Pola Roster Hari Off Mingguan: Unit dan operator diliburkan tetap (OFF) seminggu sekali pada hari tetap pilihan pengawas. Pergantian shift siang & malam berlangsung stabil di hari berikutnya.'}
                                 </p>

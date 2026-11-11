@@ -74,11 +74,12 @@ export function calculateShift(setting: UnitSetting, targetDateStr: string): Shi
     const isDay7Malam = setting.roster13_1Day7Shift === 'malam';
     
     if (isDay7Malam) {
-      // Skema Hari ke-7 disetel Shift Malam:
+      // Skema Hari ke-7 disetel Shift Malam (Total Roster Operator: 6 Siang, 7 Malam):
       // Day 0 to 5 (Hari 1-6): Op 1 = S, Op 2 = M
-      // Day 6 (Hari ke-7): Op 1 = M, Op 2 = OFF (Op 1 mulai Malam, Op 2 OFF)
-      // Day 7 to 12 (Hari 8-13): Op 1 = M, Op 2 = S (Op 1 tetap Malam, Op 2 mulai Siang)
-      // Day 13 (Hari ke-14): Op 1 = OFF, Op 2 = S (Op 1 OFF, Op 2 tetap Siang)
+      // Day 6 (Hari ke-7): Op 1 = M, Op 2 = OFF (Hari ke-7: Op 1 mulai Malam ke-1, Op 2 OFF)
+      // Day 7 to 12 (Hari 8-13): Op 1 = M, Op 2 = S (Op 1: lanjut Malam ke 2-7, Op 2: 6 Siang)
+      // Day 13 (Hari ke-14): Op 1 = OFF, Op 2 = M (Op 1: OFF, Op 2: mulai Malam ke-1)
+      // Hasil total kedua operator: Tepat 6 Siang, 7 Malam, 1 OFF (13-1)
       if (index >= 0 && index <= 5) {
         return { operator1Role: 'S', operator2Role: 'M' };
       } else if (index === 6) {
@@ -86,19 +87,20 @@ export function calculateShift(setting: UnitSetting, targetDateStr: string): Shi
       } else if (index >= 7 && index <= 12) {
         return { operator1Role: 'M', operator2Role: 'S' };
       } else { // index === 13
-        return { operator1Role: 'OFF', operator2Role: 'S' };
+        return { operator1Role: 'OFF', operator2Role: 'M' };
       }
     } else {
-      // Skema Standar (Hari ke-7 disetel Shift Siang):
-      // Day 0 to 6 (Hari 1-7): Op 1 = S, Op 2 = M (Hari ke-7 Op 1 Siang, Op 2 Malam)
-      // Day 7 (Hari ke-8): Op 1 = M, Op 2 = OFF (Op 1 mulai Malam, Op 2 OFF)
-      // Day 8 to 12 (Hari 9-13): Op 1 = M, Op 2 = S
-      // Day 13 (Hari ke-14): Op 1 = OFF, Op 2 = S (Op 1 OFF, Op 2 tetap Siang)
-      if (index >= 0 && index <= 6) {
+      // Skema Hari ke-7 disetel Shift Siang (Total Roster Operator: 7 Siang, 6 Malam):
+      // Day 0 to 5 (Hari 1-6): Op 1 = S, Op 2 = M
+      // Day 6 (Hari ke-7): Op 1 = S, Op 2 = OFF (Hari ke-7: Op 1 tetap Siang ke-7, Op 2 OFF)
+      // Day 7 to 12 (Hari 8-13): Op 1 = M, Op 2 = S (Op 1: 6 Malam, Op 2: 6 Siang)
+      // Day 13 (Hari ke-14): Op 1 = OFF, Op 2 = S (Op 1: OFF, Op 2: tetap Siang ke-7)
+      // Hasil total kedua operator: Tepat 7 Siang, 6 Malam, 1 OFF (13-1)
+      if (index >= 0 && index <= 5) {
         return { operator1Role: 'S', operator2Role: 'M' };
-      } else if (index === 7) {
-        return { operator1Role: 'M', operator2Role: 'OFF' };
-      } else if (index >= 8 && index <= 12) {
+      } else if (index === 6) {
+        return { operator1Role: 'S', operator2Role: 'OFF' };
+      } else if (index >= 7 && index <= 12) {
         return { operator1Role: 'M', operator2Role: 'S' };
       } else { // index === 13
         return { operator1Role: 'OFF', operator2Role: 'S' };
