@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { ShiftInfo, UnitSetting } from '../types';
+import { Employee, ShiftInfo, UnitSetting } from '../types';
 
 /**
  * Helper to get differences in calendar days between two ISO date strings (YYYY-MM-DD)
@@ -177,4 +177,39 @@ export function formatIndonesianDayName(dateStr: string): string {
   const date = new Date(dateStr + 'T00:00:00');
   const days = ['Minggu', 'Senin', 'Selasa', 'Rabu', 'Kamis', 'Jumat', 'Sabtu'];
   return days[date.getDay()];
+}
+
+/**
+ * Check if an employee is on scheduled annual leave on a given target date.
+ * Respects optional explicit leave start/end strings, otherwise falls back to emp.annualLeaveStartDate / emp.annualLeaveEndDate.
+ */
+export function isEmployeeOnLeave(
+  emp?: Employee | null,
+  targetDateStr?: string,
+  explicitLeaveStart?: string,
+  explicitLeaveEnd?: string
+): boolean {
+  if (!targetDateStr) return false;
+  
+  const start = explicitLeaveStart || emp?.annualLeaveStartDate;
+  const end = explicitLeaveEnd || emp?.annualLeaveEndDate;
+  
+  if (!start && !end) return false;
+  
+  // If only start date is set
+  if (start && !end) {
+    return targetDateStr === start;
+  }
+  // If only end date is set
+  if (!start && end) {
+    return targetDateStr === end;
+  }
+  // Both start and end dates are set
+  if (start && end) {
+    const minDate = start <= end ? start : end;
+    const maxDate = start <= end ? end : start;
+    return targetDateStr >= minDate && targetDateStr <= maxDate;
+  }
+  
+  return false;
 }

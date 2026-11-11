@@ -18,6 +18,8 @@ export interface Employee {
   rosterPattern: '6-1' | '13-1';
   status: 'Active' | 'On Leave' | 'Sick' | 'Inactive';
   specializations: string[]; // EGI Alat: can hold multiple equipment category values
+  annualLeaveStartDate?: string; // YYYY-MM-DD (Rencana awal cuti tahunan)
+  annualLeaveEndDate?: string;   // YYYY-MM-DD (Rencana akhir cuti tahunan)
 }
 
 export interface UnitGroup {
@@ -33,6 +35,10 @@ export interface UnitSetting {
   masterSlotCode?: string; // e.g. "M-1", "M-2" (used if groupId is 'master')
   operator1Id: string;    // references Employee.id
   operator2Id: string;    // references Employee.id
+  op1LeaveStartDate?: string; // YYYY-MM-DD (Rencana cuti tahunan Op 1)
+  op1LeaveEndDate?: string;   // YYYY-MM-DD
+  op2LeaveStartDate?: string; // YYYY-MM-DD (Rencana cuti tahunan Op 2)
+  op2LeaveEndDate?: string;   // YYYY-MM-DD
   rosterPattern: '6-1' | '13-1' | 'weekly-fixed';
   roster13_1Day7Shift?: 'siang' | 'malam'; // Pengaturan shift hari ke-7 untuk roster 13-1 (default: 'siang')
   fixedOffDayOfWeek: number; // 0 = Sunday, 1 = Monday, ..., 6 = Saturday (used only if rosterPattern is weekly-fixed)

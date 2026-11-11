@@ -5,7 +5,7 @@
 
 import React, { useState, useMemo } from 'react';
 import { Employee, HeavyUnit, UnitSetting, BackupTransfer, FTWRecord } from '../types';
-import { calculateShift, formatIndonesianDate, formatIndonesianDayName } from '../utils/scheduler';
+import { calculateShift, formatIndonesianDate, formatIndonesianDayName, isEmployeeOnLeave } from '../utils/scheduler';
 import { getOperatorFTW } from '../utils/ftwHelper';
 import { 
   BarChart3, TrendingDown, TrendingUp, Calendar, Filter, 
@@ -184,16 +184,19 @@ export default function FtwComplianceAnalytics({
           const unitLabel = unit?.unitCode || setting.masterSlotCode || 'Master Slot';
           const unitBrand = unit?.brand;
 
+          const isOp1OnLeave = isEmployeeOnLeave(op1, dStr, setting.op1LeaveStartDate, setting.op1LeaveEndDate);
+          const isOp2OnLeave = isEmployeeOnLeave(op2, dStr, setting.op2LeaveStartDate, setting.op2LeaveEndDate);
+
           if (shiftNum === 1) {
-            if (shiftInfo.operator1Role === 'S' && op1 && op1.status === 'Active') {
+            if (shiftInfo.operator1Role === 'S' && op1 && op1.status === 'Active' && !isOp1OnLeave) {
               scheduledOpsInThisShift.set(op1.id, { operator: op1, unitCode: unitLabel, unitBrand });
-            } else if (shiftInfo.operator2Role === 'S' && op2 && op2.status === 'Active') {
+            } else if (shiftInfo.operator2Role === 'S' && op2 && op2.status === 'Active' && !isOp2OnLeave) {
               scheduledOpsInThisShift.set(op2.id, { operator: op2, unitCode: unitLabel, unitBrand });
             }
           } else {
-            if (shiftInfo.operator1Role === 'M' && op1 && op1.status === 'Active') {
+            if (shiftInfo.operator1Role === 'M' && op1 && op1.status === 'Active' && !isOp1OnLeave) {
               scheduledOpsInThisShift.set(op1.id, { operator: op1, unitCode: unitLabel, unitBrand });
-            } else if (shiftInfo.operator2Role === 'M' && op2 && op2.status === 'Active') {
+            } else if (shiftInfo.operator2Role === 'M' && op2 && op2.status === 'Active' && !isOp2OnLeave) {
               scheduledOpsInThisShift.set(op2.id, { operator: op2, unitCode: unitLabel, unitBrand });
             }
           }
@@ -204,7 +207,8 @@ export default function FtwComplianceAnalytics({
           if (bt.date === dStr && Number(bt.shift) === shiftNum) {
             const op = employeeMap.get(bt.operatorId);
             const targetUnit = unitMap.get(bt.targetUnitId);
-            if (op && op.status === 'Active') {
+            const isOpOnLeave = isEmployeeOnLeave(op, dStr);
+            if (op && op.status === 'Active' && !isOpOnLeave) {
               scheduledOpsInThisShift.set(op.id, {
                 operator: op,
                 unitCode: targetUnit?.unitCode || 'Relokasi Backup',

@@ -5,7 +5,7 @@
 
 import React, { useState, useMemo, useEffect } from 'react';
 import { HeavyUnit, Employee, UnitSetting, UnitGroup, BackupTransfer, FTWRecord } from '../types';
-import { calculateShift, generateDateRange, formatIndonesianDayName, formatIndonesianDate } from '../utils/scheduler';
+import { calculateShift, generateDateRange, formatIndonesianDayName, formatIndonesianDate, isEmployeeOnLeave } from '../utils/scheduler';
 import { 
   getOperatorFTW, 
   getFTWStyleConfig, 
@@ -25,7 +25,7 @@ import {
   Building2, Truck, Users, Settings, Plus, Pencil, Trash2, Check, X, 
   HelpCircle, AlertCircle, Info, Calendar, CalendarDays, Eye, RefreshCw, Search, Sun, Moon,
   HeartPulse, Sparkles, Filter, ChevronRight, ChevronDown, ChevronUp, Clock, ShieldCheck, Zap,
-  AlertTriangle, ShieldAlert
+  AlertTriangle, ShieldAlert, Maximize2, Minimize2
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
@@ -136,15 +136,22 @@ export default function SupervisorPanel({
   const [empRoster, setEmpRoster] = useState<Employee['rosterPattern']>('6-1');
   const [empStatus, setEmpStatus] = useState<Employee['status']>('Active');
   const [empSpecializations, setEmpSpecializations] = useState<string[]>(['Dump Truck']);
+  const [empLeaveStart, setEmpLeaveStart] = useState('');
+  const [empLeaveEnd, setEmpLeaveEnd] = useState('');
 
   // Setting Unit states
   const [settingFormOpen, setSettingFormOpen] = useState(false);
+  const [settingFormMode, setSettingFormMode] = useState<'inline' | 'floating'>('inline');
   const [editingSetting, setEditingSetting] = useState<UnitSetting | null>(null);
   const [setGroupId, setSetGroupId] = useState('utama');
   const [setUnitId, setSetUnitId] = useState('');
   const [setMasterSlotCode, setSetMasterSlotCode] = useState('M-1');
   const [setOp1Id, setSetOp1Id] = useState('');
+  const [setOp1LeaveStart, setSetOp1LeaveStart] = useState('');
+  const [setOp1LeaveEnd, setSetOp1LeaveEnd] = useState('');
   const [setOp2Id, setSetOp2Id] = useState('');
+  const [setOp2LeaveStart, setSetOp2LeaveStart] = useState('');
+  const [setOp2LeaveEnd, setSetOp2LeaveEnd] = useState('');
   const [setRosterPattern, setSetRosterPattern] = useState<UnitSetting['rosterPattern']>('6-1');
   const [setRoster13_1Day7Shift, setSetRoster13_1Day7Shift] = useState<'siang' | 'malam'>('siang');
   const [setFixedOffDay, setSetFixedOffDay] = useState(0); // 0 = Sunday
@@ -440,7 +447,16 @@ export default function SupervisorPanel({
 
     if (editingEmp) {
       setEmployees(prev => prev.map(emp => emp.id === editingEmp.id
-        ? { ...emp, nrp: cleanNik, name: empName.trim().toUpperCase(), rosterPattern: empRoster, status: empStatus, specializations: empSpecializations }
+        ? { 
+            ...emp, 
+            nrp: cleanNik, 
+            name: empName.trim().toUpperCase(), 
+            rosterPattern: empRoster, 
+            status: empStatus, 
+            specializations: empSpecializations,
+            annualLeaveStartDate: empLeaveStart || undefined,
+            annualLeaveEndDate: empLeaveEnd || undefined
+          }
         : emp
       ));
     } else {
@@ -450,7 +466,9 @@ export default function SupervisorPanel({
         name: empName.trim().toUpperCase(),
         rosterPattern: empRoster,
         status: empStatus,
-        specializations: empSpecializations
+        specializations: empSpecializations,
+        annualLeaveStartDate: empLeaveStart || undefined,
+        annualLeaveEndDate: empLeaveEnd || undefined
       };
       setEmployees(prev => [...prev, newEmp]);
     }
@@ -465,6 +483,8 @@ export default function SupervisorPanel({
     setEmpRoster('6-1');
     setEmpStatus('Active');
     setEmpSpecializations(['Dump Truck']);
+    setEmpLeaveStart('');
+    setEmpLeaveEnd('');
   };
 
   const startEditEmployee = (emp: Employee) => {
@@ -474,6 +494,8 @@ export default function SupervisorPanel({
     setEmpRoster(emp.rosterPattern);
     setEmpStatus(emp.status);
     setEmpSpecializations(emp.specializations || ['Dump Truck']);
+    setEmpLeaveStart(emp.annualLeaveStartDate || '');
+    setEmpLeaveEnd(emp.annualLeaveEndDate || '');
     setEmpFormOpen(true);
   };
 
@@ -531,6 +553,10 @@ export default function SupervisorPanel({
             masterSlotCode: isMaster ? setMasterSlotCode.trim().toUpperCase() : undefined,
             operator1Id: setOp1Id,
             operator2Id: setOp2Id,
+            op1LeaveStartDate: setOp1LeaveStart || undefined,
+            op1LeaveEndDate: setOp1LeaveEnd || undefined,
+            op2LeaveStartDate: setOp2LeaveStart || undefined,
+            op2LeaveEndDate: setOp2LeaveEnd || undefined,
             rosterPattern: setRosterPattern,
             roster13_1Day7Shift: setRosterPattern === '13-1' ? setRoster13_1Day7Shift : undefined,
             fixedOffDayOfWeek: setFixedOffDay,
@@ -550,6 +576,10 @@ export default function SupervisorPanel({
         masterSlotCode: isMaster ? setMasterSlotCode.trim().toUpperCase() : undefined,
         operator1Id: setOp1Id,
         operator2Id: setOp2Id,
+        op1LeaveStartDate: setOp1LeaveStart || undefined,
+        op1LeaveEndDate: setOp1LeaveEnd || undefined,
+        op2LeaveStartDate: setOp2LeaveStart || undefined,
+        op2LeaveEndDate: setOp2LeaveEnd || undefined,
         rosterPattern: setRosterPattern,
         roster13_1Day7Shift: setRosterPattern === '13-1' ? setRoster13_1Day7Shift : undefined,
         fixedOffDayOfWeek: setFixedOffDay,
@@ -561,6 +591,26 @@ export default function SupervisorPanel({
       };
       setSettings(prev => [...prev, newSetting]);
     }
+
+    // Synchronize annual leave dates to employee database
+    setEmployees(prev => prev.map(emp => {
+      if (setOp1Id && emp.id === setOp1Id) {
+        return {
+          ...emp,
+          annualLeaveStartDate: setOp1LeaveStart || undefined,
+          annualLeaveEndDate: setOp1LeaveEnd || undefined
+        };
+      }
+      if (setOp2Id && emp.id === setOp2Id) {
+        return {
+          ...emp,
+          annualLeaveStartDate: setOp2LeaveStart || undefined,
+          annualLeaveEndDate: setOp2LeaveEnd || undefined
+        };
+      }
+      return emp;
+    }));
+
     resetSettingForm();
   };
 
@@ -571,7 +621,11 @@ export default function SupervisorPanel({
     setSetUnitId('');
     setSetMasterSlotCode('M-1');
     setSetOp1Id('');
+    setSetOp1LeaveStart('');
+    setSetOp1LeaveEnd('');
     setSetOp2Id('');
+    setSetOp2LeaveStart('');
+    setSetOp2LeaveEnd('');
     setSetRosterPattern('6-1');
     setSetRoster13_1Day7Shift('siang');
     setSetFixedOffDay(0);
@@ -604,6 +658,14 @@ export default function SupervisorPanel({
       }
     }
     setSettingFormOpen(true);
+    if (settingFormMode === 'inline') {
+      setTimeout(() => {
+        const topEl = document.getElementById('new-setting-form-top');
+        if (topEl) {
+          topEl.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }
+      }, 50);
+    }
   };
 
   const startEditSetting = (s: UnitSetting) => {
@@ -612,7 +674,15 @@ export default function SupervisorPanel({
     setSetUnitId(s.unitId || '');
     setSetMasterSlotCode(s.masterSlotCode || 'M-1');
     setSetOp1Id(s.operator1Id);
+    const op1Emp = employees.find(e => e.id === s.operator1Id);
+    setSetOp1LeaveStart(s.op1LeaveStartDate || op1Emp?.annualLeaveStartDate || '');
+    setSetOp1LeaveEnd(s.op1LeaveEndDate || op1Emp?.annualLeaveEndDate || '');
+
     setSetOp2Id(s.operator2Id);
+    const op2Emp = employees.find(e => e.id === s.operator2Id);
+    setSetOp2LeaveStart(s.op2LeaveStartDate || op2Emp?.annualLeaveStartDate || '');
+    setSetOp2LeaveEnd(s.op2LeaveEndDate || op2Emp?.annualLeaveEndDate || '');
+
     setSetRosterPattern(s.rosterPattern);
     setSetRoster13_1Day7Shift(s.roster13_1Day7Shift || 'siang');
     setSetFixedOffDay(s.fixedOffDayOfWeek);
@@ -622,6 +692,14 @@ export default function SupervisorPanel({
     setSetBackupPriorityUnitId1(s.backupPriorityUnitId1 || '');
     setSetBackupPriorityUnitId2(s.backupPriorityUnitId2 || '');
     setSettingFormOpen(true);
+
+    // If inline mode, ensure the unit card is brought smoothly into view without scrolling to the top of the page
+    setTimeout(() => {
+      const cardEl = document.getElementById(`setting-card-${s.id}`);
+      if (cardEl) {
+        cardEl.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+      }
+    }, 50);
   };
 
   const deleteSetting = (id: string, e: React.MouseEvent) => {
@@ -761,6 +839,588 @@ export default function SupervisorPanel({
 
     return list;
   }, [settings, activeSubSetting, settingSearchQuery, ftwShiftFilter, selectedDate, ftwRecords, unitMap, employeeMap]);
+
+  // Reusable Setting Form Content Renderer (supports both inline beneath card and floating modal modes)
+  const renderSettingFormContent = (isFloatingMode: boolean = false) => {
+    const isMaster = setGroupId === 'master';
+    const targetUnit = !isMaster ? units.find(u => u.id === setUnitId) : null;
+    const currentCode = isMaster ? (setMasterSlotCode || 'M-?') : (targetUnit?.unitCode || 'Unit');
+    const headerTitle = editingSetting 
+      ? `Ubah Penugasan Roster: ${currentCode}` 
+      : 'Pasang Operator & Roster Pada Unit';
+
+    return (
+      <div className={`bg-white rounded-xl border border-slate-200 shadow-lg ${isFloatingMode ? 'p-5 sm:p-6' : 'p-4 sm:p-5'}`}>
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between pb-3.5 mb-4 border-b border-slate-100 gap-2">
+          <div>
+            <div className="flex flex-wrap items-center gap-2">
+              <h4 className="font-extrabold text-slate-800 text-sm sm:text-base flex items-center gap-1.5">
+                <Pencil className="h-4 w-4 text-amber-500" />
+                {headerTitle}
+              </h4>
+              {editingSetting && (
+                <span className={`text-[10px] font-mono font-extrabold px-2 py-0.5 rounded border ${
+                  isFloatingMode 
+                    ? 'bg-indigo-50 text-indigo-700 border-indigo-200' 
+                    : 'bg-amber-500/10 text-amber-900 border-amber-300'
+                }`}>
+                  {isFloatingMode ? '🪟 Menu Floating (Melayang)' : '📍 Langsung di Bawah Kartu Unit'}
+                </span>
+              )}
+            </div>
+            <p className="text-[11px] text-slate-400 font-medium">
+              Hubungkan armada, dua operator, dan rancang perhitungan masa tukar shift tanpa perlu scrolling ke atas.
+            </p>
+          </div>
+
+          <div className="flex items-center gap-2 self-end sm:self-center shrink-0">
+            {/* Toggle switch between Inline and Floating menu */}
+            <button
+              type="button"
+              onClick={() => setSettingFormMode(prev => prev === 'inline' ? 'floating' : 'inline')}
+              className="text-[11px] font-bold text-slate-700 hover:text-slate-900 bg-slate-100 hover:bg-slate-200 border border-slate-200 px-2.5 py-1.5 rounded-lg flex items-center gap-1.5 transition cursor-pointer"
+              title={settingFormMode === 'inline' ? 'Ubah ke menu floating/popup melayang' : 'Ubah ke mode langsung di bawah kartu'}
+            >
+              {settingFormMode === 'inline' ? (
+                <>
+                  <Maximize2 className="h-3.5 w-3.5 text-amber-600" />
+                  <span>Jadikan Floating</span>
+                </>
+              ) : (
+                <>
+                  <Minimize2 className="h-3.5 w-3.5 text-amber-600" />
+                  <span>Pasang di Bawah Kartu</span>
+                </>
+              )}
+            </button>
+
+            <button 
+              type="button"
+              onClick={resetSettingForm} 
+              className="p-1 text-slate-400 hover:text-slate-600 rounded hover:bg-slate-100 cursor-pointer transition"
+              title="Tutup Form"
+            >
+              <X className="h-5 w-5" />
+            </button>
+          </div>
+        </div>
+
+        <form onSubmit={saveSetting} className="space-y-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
+            
+            {/* Select Group */}
+            <div>
+              <label className="block text-[10px] uppercase text-slate-500 font-bold mb-1.5 font-mono">Grup Papan Tulis</label>
+              <select
+                value={setGroupId}
+                onChange={(e) => {
+                  const gId = e.target.value;
+                  setSetGroupId(gId);
+                  if (gId === 'master') {
+                    const masterCodes = settings
+                      .filter(s => s.groupId === 'master' && s.masterSlotCode)
+                      .map(s => {
+                        const match = s.masterSlotCode?.match(/M-(\d+)/i);
+                        return match ? parseInt(match[1], 10) : 0;
+                      });
+                    const nextNum = masterCodes.length > 0 ? Math.max(...masterCodes) + 1 : 1;
+                    setSetMasterSlotCode(`M-${nextNum}`);
+                    setSetUnitId('');
+                  } else {
+                    const configuredUnitIds = new Set(settings.map(s => s.unitId));
+                    const firstUnconfigured = units.find(u => !configuredUnitIds.has(u.id));
+                    if (firstUnconfigured) {
+                      setSetUnitId(firstUnconfigured.id);
+                    }
+                  }
+                }}
+                className="w-full bg-slate-50 border border-slate-200 rounded px-3 py-2 text-sm text-slate-800 focus:outline-none focus:border-amber-500 cursor-pointer font-bold"
+              >
+                {groups.map(g => (
+                  <option key={g.id} value={g.id}>{g.name}</option>
+                ))}
+              </select>
+            </div>
+
+            {/* Select Unit or Show Auto Master Slot */}
+            {setGroupId === 'master' ? (
+              <div>
+                <label className="block text-[10px] uppercase text-slate-500 font-bold mb-1.5 font-mono">Slot Master Otomatis</label>
+                <input
+                  type="text"
+                  value={setMasterSlotCode}
+                  disabled
+                  className="w-full bg-slate-150 border border-slate-200 rounded px-3 py-2 text-sm text-slate-600 font-extrabold font-mono"
+                />
+                <p className="text-[10px] text-slate-400 mt-1.5">Slot cadangan otomatis berurutan (e.g. M-1, M-2).</p>
+              </div>
+            ) : (
+              <div>
+                <label className="block text-[10px] uppercase text-slate-500 font-bold mb-1.5 font-mono">1. Pilih Unit Alat Berat</label>
+                <select
+                  value={setUnitId}
+                  onChange={(e) => setSetUnitId(e.target.value)}
+                  required
+                  className="w-full bg-slate-50 border border-slate-200 rounded px-3 py-2 text-sm text-slate-800 focus:outline-none focus:border-amber-500 font-mono font-bold cursor-pointer"
+                >
+                  <option value="">-- Pilih Unit --</option>
+                  {units.map(u => {
+                    const isConfigured = settings.some(s => s.unitId === u.id && (!editingSetting || s.id !== editingSetting.id));
+                    return (
+                      <option key={u.id} value={u.id} disabled={isConfigured}>
+                        {u.unitCode} - {u.brand} ({u.type}) {isConfigured ? ' [Sudah Diset]' : ''}
+                      </option>
+                    );
+                  })}
+                </select>
+                <p className="text-[10px] text-slate-400 mt-1.5">Pilih armada yang akan dioperasikan secara rotasi.</p>
+              </div>
+            )}
+
+            {/* Select Roster Pattern */}
+            <div>
+              <label className="block text-[10px] uppercase text-slate-500 font-bold mb-1.5 font-mono">2. Skema Pola Roster Unit</label>
+              <select
+                value={setRosterPattern}
+                onChange={(e) => setSetRosterPattern(e.target.value as UnitSetting['rosterPattern'])}
+                className="w-full bg-slate-50 border border-slate-200 rounded px-3 py-2 text-sm text-slate-800 focus:outline-none focus:border-amber-500 cursor-pointer font-bold"
+              >
+                <option value="6-1">Roster Kerja 6-1 (6 Hari S/M, 1 Hari OFF Bersama)</option>
+                <option value="13-1">Roster Kerja 13-1 (13 Hari S/M, 1 Hari OFF Bersama)</option>
+                <option value="weekly-fixed">Roster Off Tetap (Off pada Hari Libur tetap mingguan)</option>
+              </select>
+            </div>
+
+            {/* Operator 1 */}
+            <div>
+              <label className="block text-[10px] uppercase text-slate-500 font-bold mb-1.5 font-mono">3. Operator 1 (Awal Shift Siang)</label>
+              <select
+                value={setOp1Id}
+                onChange={(e) => {
+                  const val = e.target.value;
+                  setSetOp1Id(val);
+                  const found = employees.find(emp => emp.id === val);
+                  if (found) {
+                    setSetOp1LeaveStart(found.annualLeaveStartDate || '');
+                    setSetOp1LeaveEnd(found.annualLeaveEndDate || '');
+                  } else {
+                    setSetOp1LeaveStart('');
+                    setSetOp1LeaveEnd('');
+                  }
+                }}
+                className="w-full bg-slate-50 border border-slate-200 rounded px-3 py-2 text-sm text-slate-800 focus:outline-none focus:border-amber-500 font-bold cursor-pointer"
+              >
+                <option value="">-- Kosong / Tanpa Operator --</option>
+                {employees.map(emp => {
+                  const ftwS1 = getOperatorFTW(emp.nrp, selectedDate, 1, ftwRecords);
+                  const ftwS2 = getOperatorFTW(emp.nrp, selectedDate, 2, ftwRecords);
+                  const tag = ftwS1.status === 'unfit' || ftwS2.status === 'unfit'
+                    ? '🔴 Unfit'
+                    : ftwS1.status === 'rest' || ftwS2.status === 'rest'
+                      ? '🟠 Istirahat'
+                      : ftwS1.status === 'conditional' || ftwS2.status === 'conditional'
+                        ? '🟡 Pengawasan'
+                        : ftwS1.status === 'fit' 
+                          ? '🟢 Fit (Shift 1)' 
+                          : ftwS2.status === 'fit' 
+                            ? '🟢 Fit (Shift 2)' 
+                            : '⚪ Belum FTW';
+                  const isLeaveNow = isEmployeeOnLeave(emp, selectedDate);
+                  const hasLeavePlan = !!(emp.annualLeaveStartDate || emp.annualLeaveEndDate);
+                  const leaveLabel = isLeaveNow 
+                    ? ' • 🏖️ SEDANG CUTI' 
+                    : hasLeavePlan 
+                      ? ` • 🏖️ Cuti (${emp.annualLeaveStartDate || ''}${emp.annualLeaveEndDate && emp.annualLeaveEndDate !== emp.annualLeaveStartDate ? ' s/d ' + emp.annualLeaveEndDate : ''})`
+                      : '';
+                  return (
+                    <option key={emp.id} value={emp.id} disabled={emp.id === setOp2Id}>
+                      {emp.name} [NIK: {emp.nrp}] - {tag} (Roster {emp.rosterPattern}){leaveLabel}
+                    </option>
+                  );
+                })}
+              </select>
+              <p className="text-[10px] text-slate-400 mt-1.5">Hari pertama siklus akan dimulai pada Shift 1 (Siang).</p>
+
+              {/* Input Rencana Tanggal Cuti Tahunan Operator 1 */}
+              {setOp1Id && (
+                <div className="mt-2.5 p-2.5 bg-amber-50/80 border border-amber-200 rounded-lg text-xs space-y-2">
+                  <div className="flex items-center justify-between">
+                    <span className="font-extrabold text-amber-900 flex items-center gap-1.5 text-[11px]">
+                      🏖️ Rencana Tanggal Cuti Tahunan (Op 1)
+                    </span>
+                    {(setOp1LeaveStart || setOp1LeaveEnd) && (
+                      <button
+                        type="button"
+                        onClick={() => { setSetOp1LeaveStart(''); setSetOp1LeaveEnd(''); }}
+                        className="text-[10px] text-rose-600 hover:text-rose-800 font-bold underline cursor-pointer"
+                      >
+                        Hapus Cuti
+                      </button>
+                    )}
+                  </div>
+                  <div className="grid grid-cols-2 gap-2">
+                    <div>
+                      <label className="block text-[10px] text-slate-600 font-bold mb-0.5">Mulai Cuti:</label>
+                      <input
+                        type="date"
+                        value={setOp1LeaveStart}
+                        onChange={(e) => setSetOp1LeaveStart(e.target.value)}
+                        className="w-full bg-white border border-slate-200 rounded px-2 py-1 text-xs text-slate-800 focus:outline-none focus:border-amber-500 cursor-pointer font-medium"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[10px] text-slate-600 font-bold mb-0.5">Selesai Cuti:</label>
+                      <input
+                        type="date"
+                        value={setOp1LeaveEnd}
+                        onChange={(e) => setSetOp1LeaveEnd(e.target.value)}
+                        className="w-full bg-white border border-slate-200 rounded px-2 py-1 text-xs text-slate-800 focus:outline-none focus:border-amber-500 cursor-pointer font-medium"
+                      />
+                    </div>
+                  </div>
+                  {setOp1LeaveStart && (
+                    <div className="text-[10.5px] text-amber-900 bg-white/70 p-1.5 rounded border border-amber-200/60 font-mono">
+                      Periode: <span className="font-bold">{setOp1LeaveStart}</span>
+                      {setOp1LeaveEnd && setOp1LeaveEnd !== setOp1LeaveStart && (
+                        <span> s/d <span className="font-bold">{setOp1LeaveEnd}</span></span>
+                      )}
+                      {isEmployeeOnLeave(
+                        employees.find(e => e.id === setOp1Id) || { id: setOp1Id, name: '', nrp: '', rosterPattern: '6-1', status: 'Active', specializations: [] },
+                        selectedDate,
+                        setOp1LeaveStart,
+                        setOp1LeaveEnd
+                      ) && (
+                        <span className="ml-1.5 text-rose-600 font-bold uppercase tracking-tight">[🏖️ Sedang Cuti pada Tgl Preview]</span>
+                      )}
+                    </div>
+                  )}
+                  <p className="text-[9.5px] text-slate-500 italic">
+                    *Selama periode cuti, operator otomatis tidak akan muncul di dashboard Monitor Lapangan & Resume Operator.
+                  </p>
+                </div>
+              )}
+            </div>
+
+            {/* Operator 2 */}
+            <div>
+              <label className="block text-[10px] uppercase text-slate-500 font-bold mb-1.5 font-mono">4. Operator 2 (Awal Shift Malam)</label>
+              <select
+                value={setOp2Id}
+                onChange={(e) => {
+                  const val = e.target.value;
+                  setSetOp2Id(val);
+                  const found = employees.find(emp => emp.id === val);
+                  if (found) {
+                    setSetOp2LeaveStart(found.annualLeaveStartDate || '');
+                    setSetOp2LeaveEnd(found.annualLeaveEndDate || '');
+                  } else {
+                    setSetOp2LeaveStart('');
+                    setSetOp2LeaveEnd('');
+                  }
+                }}
+                className="w-full bg-slate-50 border border-slate-200 rounded px-3 py-2 text-sm text-slate-800 focus:outline-none focus:border-amber-500 font-bold cursor-pointer"
+              >
+                <option value="">-- Kosong / Tanpa Operator --</option>
+                {employees.map(emp => {
+                  const ftwS1 = getOperatorFTW(emp.nrp, selectedDate, 1, ftwRecords);
+                  const ftwS2 = getOperatorFTW(emp.nrp, selectedDate, 2, ftwRecords);
+                  const tag = ftwS1.status === 'unfit' || ftwS2.status === 'unfit'
+                    ? '🔴 Unfit'
+                    : ftwS1.status === 'rest' || ftwS2.status === 'rest'
+                      ? '🟠 Istirahat'
+                      : ftwS1.status === 'conditional' || ftwS2.status === 'conditional'
+                        ? '🟡 Pengawasan'
+                        : ftwS1.status === 'fit' 
+                          ? '🟢 Fit (Shift 1)' 
+                          : ftwS2.status === 'fit' 
+                            ? '🟢 Fit (Shift 2)' 
+                            : '⚪ Belum FTW';
+                  const isLeaveNow = isEmployeeOnLeave(emp, selectedDate);
+                  const hasLeavePlan = !!(emp.annualLeaveStartDate || emp.annualLeaveEndDate);
+                  const leaveLabel = isLeaveNow 
+                    ? ' • 🏖️ SEDANG CUTI' 
+                    : hasLeavePlan 
+                      ? ` • 🏖️ Cuti (${emp.annualLeaveStartDate || ''}${emp.annualLeaveEndDate && emp.annualLeaveEndDate !== emp.annualLeaveStartDate ? ' s/d ' + emp.annualLeaveEndDate : ''})`
+                      : '';
+                  return (
+                    <option key={emp.id} value={emp.id} disabled={emp.id === setOp1Id}>
+                      {emp.name} [NIK: {emp.nrp}] - {tag} (Roster {emp.rosterPattern}){leaveLabel}
+                    </option>
+                  );
+                })}
+              </select>
+              <p className="text-[10px] text-slate-400 mt-1.5">Hari pertama siklus akan dimulai pada Shift 2 (Malam).</p>
+
+              {/* Input Rencana Tanggal Cuti Tahunan Operator 2 */}
+              {setOp2Id && (
+                <div className="mt-2.5 p-2.5 bg-amber-50/80 border border-amber-200 rounded-lg text-xs space-y-2">
+                  <div className="flex items-center justify-between">
+                    <span className="font-extrabold text-amber-900 flex items-center gap-1.5 text-[11px]">
+                      🏖️ Rencana Tanggal Cuti Tahunan (Op 2)
+                    </span>
+                    {(setOp2LeaveStart || setOp2LeaveEnd) && (
+                      <button
+                        type="button"
+                        onClick={() => { setSetOp2LeaveStart(''); setSetOp2LeaveEnd(''); }}
+                        className="text-[10px] text-rose-600 hover:text-rose-800 font-bold underline cursor-pointer"
+                      >
+                        Hapus Cuti
+                      </button>
+                    )}
+                  </div>
+                  <div className="grid grid-cols-2 gap-2">
+                    <div>
+                      <label className="block text-[10px] text-slate-600 font-bold mb-0.5">Mulai Cuti:</label>
+                      <input
+                        type="date"
+                        value={setOp2LeaveStart}
+                        onChange={(e) => setSetOp2LeaveStart(e.target.value)}
+                        className="w-full bg-white border border-slate-200 rounded px-2 py-1 text-xs text-slate-800 focus:outline-none focus:border-amber-500 cursor-pointer font-medium"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[10px] text-slate-600 font-bold mb-0.5">Selesai Cuti:</label>
+                      <input
+                        type="date"
+                        value={setOp2LeaveEnd}
+                        onChange={(e) => setSetOp2LeaveEnd(e.target.value)}
+                        className="w-full bg-white border border-slate-200 rounded px-2 py-1 text-xs text-slate-800 focus:outline-none focus:border-amber-500 cursor-pointer font-medium"
+                      />
+                    </div>
+                  </div>
+                  {setOp2LeaveStart && (
+                    <div className="text-[10.5px] text-amber-900 bg-white/70 p-1.5 rounded border border-amber-200/60 font-mono">
+                      Periode: <span className="font-bold">{setOp2LeaveStart}</span>
+                      {setOp2LeaveEnd && setOp2LeaveEnd !== setOp2LeaveStart && (
+                        <span> s/d <span className="font-bold">{setOp2LeaveEnd}</span></span>
+                      )}
+                      {isEmployeeOnLeave(
+                        employees.find(e => e.id === setOp2Id) || { id: setOp2Id, name: '', nrp: '', rosterPattern: '6-1', status: 'Active', specializations: [] },
+                        selectedDate,
+                        setOp2LeaveStart,
+                        setOp2LeaveEnd
+                      ) && (
+                        <span className="ml-1.5 text-rose-600 font-bold uppercase tracking-tight">[🏖️ Sedang Cuti pada Tgl Preview]</span>
+                      )}
+                    </div>
+                  )}
+                  <p className="text-[9.5px] text-slate-500 italic">
+                    *Selama periode cuti, operator otomatis tidak akan muncul di dashboard Monitor Lapangan & Resume Operator.
+                  </p>
+                </div>
+              )}
+            </div>
+
+            {/* Hari Pertama Siang Reference date */}
+            <div>
+              <label className="block text-[10px] uppercase text-slate-500 font-bold mb-1.5 font-mono">5. Hari Pertama Siang (Tanggal Mulai Siklus)</label>
+              <input
+                type="date"
+                value={setStartSiangDate}
+                onChange={(e) => setSetStartSiangDate(e.target.value)}
+                required
+                className="w-full bg-slate-50 border border-slate-200 rounded px-3 py-2 text-sm text-slate-800 focus:outline-none focus:border-amber-500 cursor-pointer font-bold"
+              />
+              <p className="text-[10px] text-slate-400 mt-1.5">Tanggal acuan dimulainya siklus pembagian shift pertama.</p>
+            </div>
+
+            {/* Fixed Off Day select (shown only if rosterPattern is weekly-fixed) */}
+            {setRosterPattern === 'weekly-fixed' && (
+              <div className="sm:col-span-2">
+                <label className="block text-[10px] uppercase text-slate-500 font-bold mb-1.5 font-mono">6. Hari Off Tetap Mingguan (Libur Bersama)</label>
+                <select
+                  value={setFixedOffDay}
+                  onChange={(e) => setSetFixedOffDay(Number(e.target.value))}
+                  className="w-full bg-slate-50 border border-slate-200 rounded px-3 py-2 text-sm text-slate-800 focus:outline-none focus:border-teal-500 font-bold cursor-pointer"
+                >
+                  <option value={0}>Hari Minggu (Sunday)</option>
+                  <option value={1}>Hari Senin (Monday)</option>
+                  <option value={2}>Hari Selasa (Tuesday)</option>
+                  <option value={3}>Hari Rabu (Wednesday)</option>
+                  <option value={4}>Hari Kamis (Thursday)</option>
+                  <option value={5}>Hari Jumat (Friday)</option>
+                  <option value={6}>Hari Sabtu (Saturday)</option>
+                </select>
+                <p className="text-[10px] text-slate-400 mt-1.5">Unit dan kedua operator diliburkan serentak pada hari ini setiap minggunya.</p>
+              </div>
+            )}
+
+            {/* Pengaturan Shift Hari Ke-7 (Khusus Roster 13-1) */}
+            {setRosterPattern === '13-1' && (
+              <div className="col-span-1 sm:col-span-2 md:col-span-3 bg-amber-50/70 border border-amber-300/80 rounded-xl p-4 shadow-xs">
+                <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-1 mb-2">
+                  <label className="text-xs uppercase text-amber-900 font-extrabold font-mono flex items-center gap-1.5">
+                    <span className="w-2 h-2 rounded-full bg-amber-500 animate-pulse" />
+                    6. Pengaturan Shift Hari Ke-7 (Pola Roster 13-1)
+                  </label>
+                  <span className="text-[11px] font-black uppercase font-mono px-2.5 py-0.5 rounded-full border bg-white border-amber-300 text-amber-800 shadow-xs inline-block">
+                    Pilihan: {setRoster13_1Day7Shift === 'malam' ? '🌙 Shift Malam' : '☀️ Shift Siang'}
+                  </span>
+                </div>
+                
+                <p className="text-xs text-amber-800/80 mb-3 leading-relaxed">
+                  Tentukan apakah penugasan pada <strong>Hari ke-7 siklus</strong> berjalan sebagai <strong>Shift Siang</strong> (standar) atau langsung beralih ke <strong>Shift Malam</strong>:
+                </p>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <button
+                    type="button"
+                    onClick={() => setSetRoster13_1Day7Shift('siang')}
+                    className={`p-3 rounded-lg border text-left cursor-pointer transition-all flex flex-col gap-1.5 ${
+                      setRoster13_1Day7Shift === 'siang'
+                        ? 'bg-white border-amber-500 ring-2 ring-amber-400/50 shadow-sm'
+                        : 'bg-white/60 border-amber-200/60 hover:bg-white text-slate-600'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs font-black text-amber-900 flex items-center gap-1.5">
+                        ☀️ Shift Siang (7 Siang, 6 Malam)
+                      </span>
+                      {setRoster13_1Day7Shift === 'siang' && (
+                        <span className="text-[10px] font-extrabold text-amber-700 bg-amber-100 px-2 py-0.5 rounded">
+                          Aktif
+                        </span>
+                      )}
+                    </div>
+                    <p className="text-[11px] text-slate-600 leading-normal">
+                      • <strong>Total Roster Operator:</strong> 7 hari Siang, 6 hari Malam, 1 hari OFF.<br />
+                      • <strong>Hari ke-7:</strong> Op 1 tetap <strong>Shift Siang</strong> (Siang ke-7), Op 2 <strong>OFF</strong>.<br />
+                      • <strong>Hari ke-14:</strong> Op 1 <strong>OFF</strong>, Op 2 tetap <strong>Shift Siang</strong> (Siang ke-7).
+                    </p>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setSetRoster13_1Day7Shift('malam')}
+                    className={`p-3 rounded-lg border text-left cursor-pointer transition-all flex flex-col gap-1.5 ${
+                      setRoster13_1Day7Shift === 'malam'
+                        ? 'bg-white border-indigo-500 ring-2 ring-indigo-400/50 shadow-sm'
+                        : 'bg-white/60 border-amber-200/60 hover:bg-white text-slate-600'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs font-black text-indigo-900 flex items-center gap-1.5">
+                        🌙 Shift Malam (6 Siang, 7 Malam)
+                      </span>
+                      {setRoster13_1Day7Shift === 'malam' && (
+                        <span className="text-[10px] font-extrabold text-indigo-700 bg-indigo-100 px-2 py-0.5 rounded">
+                          Aktif
+                        </span>
+                      )}
+                    </div>
+                    <p className="text-[11px] text-slate-600 leading-normal">
+                      • <strong>Total Roster Operator:</strong> 6 hari Siang, 7 hari Malam, 1 hari OFF.<br />
+                      • <strong>Hari ke-7:</strong> Op 1 beralih ke <strong>Shift Malam</strong> (Malam ke-1), Op 2 <strong>OFF</strong>.<br />
+                      • <strong>Hari ke-14:</strong> Op 1 <strong>OFF</strong>, Op 2 beralih ke <strong>Shift Malam</strong> (Malam ke-1).
+                    </p>
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* Backup Allocation Priorities (Only for Operator Master Settings) */}
+            {setGroupId === 'master' && (
+              <div className="col-span-1 sm:col-span-2 md:col-span-3 mt-2 bg-amber-500/5 border border-amber-500/15 p-4 rounded-lg space-y-4">
+                <div className="flex items-center gap-2 pb-2 border-b border-amber-500/10">
+                  <span className="text-amber-500 font-extrabold text-xs">★</span>
+                  <h5 className="font-extrabold text-xs text-amber-900 uppercase tracking-wide">
+                    Pengaturan Unit Master
+                  </h5>
+                </div>
+                <p className="text-[11px] text-slate-500 leading-relaxed font-semibold font-mono">
+                  Sesuaikan unit prioritas utama yang harus di-backup terlebih dahulu oleh Operator Master ini sebelum beralih ke unit jenis lain.
+                </p>
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 pt-1">
+                  
+                  {/* Priority Type 1 */}
+                  <div>
+                    <label className="block text-[10px] uppercase text-emerald-800 font-black mb-1 font-mono">1. Jenis Unit Prioritas #1</label>
+                    <select
+                      value={setBackupPriorityType1}
+                      onChange={(e) => setSetBackupPriorityType1(e.target.value)}
+                      className="w-full bg-white border border-slate-200 rounded px-2.5 py-1.5 text-xs text-slate-800 font-bold cursor-pointer focus:outline-none focus:border-amber-500"
+                    >
+                      <option value="">-- Tanpa Prioritas --</option>
+                      {EQUIPMENT_CATEGORIES.map(cat => (
+                        <option key={cat} value={cat}>{cat}</option>
+                      ))}
+                    </select>
+                  </div>
+
+                  {/* Priority Type 2 */}
+                  <div>
+                    <label className="block text-[10px] uppercase text-slate-500 font-bold mb-1 font-mono">2. Jenis Unit Prioritas #2</label>
+                    <select
+                      value={setBackupPriorityType2}
+                      onChange={(e) => setSetBackupPriorityType2(e.target.value)}
+                      className="w-full bg-white border border-slate-200 rounded px-2.5 py-1.5 text-xs text-slate-800 font-bold cursor-pointer focus:outline-none focus:border-amber-500"
+                    >
+                      <option value="">-- Tanpa Prioritas --</option>
+                      {EQUIPMENT_CATEGORIES.map(cat => (
+                        <option key={cat} value={cat}>{cat}</option>
+                      ))}
+                    </select>
+                  </div>
+
+                  {/* Specific Unit 1 */}
+                  <div>
+                    <label className="block text-[10px] uppercase text-cyan-800 font-black mb-1 font-mono">3. No Unit Prioritas #1</label>
+                    <select
+                      value={setBackupPriorityUnitId1}
+                      onChange={(e) => setSetBackupPriorityUnitId1(e.target.value)}
+                      className="w-full bg-white border border-slate-200 rounded px-2.5 py-1.5 text-xs text-slate-800 font-bold font-mono cursor-pointer focus:outline-none focus:border-amber-500"
+                    >
+                      <option value="">-- Tanpa Prioritas --</option>
+                      {units.map(u => (
+                        <option key={u.id} value={u.id}>
+                          {u.unitCode} ({u.type})
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  {/* Specific Unit 2 */}
+                  <div>
+                    <label className="block text-[10px] uppercase text-slate-500 font-bold mb-1 font-mono">4. No Unit Prioritas #2</label>
+                    <select
+                      value={setBackupPriorityUnitId2}
+                      onChange={(e) => setSetBackupPriorityUnitId2(e.target.value)}
+                      className="w-full bg-white border border-slate-200 rounded px-2.5 py-1.5 text-xs text-slate-800 font-bold font-mono cursor-pointer focus:outline-none focus:border-amber-500"
+                    >
+                      <option value="">-- Tanpa Prioritas --</option>
+                      {units.map(u => (
+                        <option key={u.id} value={u.id}>
+                          {u.unitCode} ({u.type})
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                </div>
+              </div>
+            )}
+
+          </div>
+
+          <div className="flex justify-end gap-2 border-t border-slate-100 pt-4">
+            <button
+              type="button"
+              onClick={resetSettingForm}
+              className="px-4 py-2 border border-slate-200 bg-transparent rounded text-xs font-bold text-slate-500 hover:bg-slate-50 transition cursor-pointer"
+            >
+              Batalkan
+            </button>
+            <button
+              type="submit"
+              className="px-5 py-2 bg-amber-500 hover:bg-amber-600 text-slate-950 font-black rounded text-xs transition flex items-center gap-1 cursor-pointer"
+            >
+              <Check className="h-3.5 w-3.5" /> {editingSetting ? 'Simpan Perubahan Roster' : (isMaster ? 'Simpan Settingan Master' : 'Simpan Konfigurasi Unit')}
+            </button>
+          </div>
+        </form>
+      </div>
+    );
+  };
 
   return (
     <div className="flex flex-col h-full bg-slate-50 text-slate-700" id="supervisor-panel-container">
@@ -1315,6 +1975,33 @@ export default function SupervisorPanel({
                             <option value="Inactive">Resign / Non-aktif</option>
                           </select>
                         </div>
+
+                        {/* Rencana Tanggal Cuti Tahunan */}
+                        <div className="sm:col-span-2 bg-amber-50/70 p-2.5 rounded-lg border border-amber-200">
+                          <label className="block text-[10px] uppercase text-amber-900 font-extrabold mb-1 font-mono">
+                            🏖️ Rencana Tanggal Cuti Tahunan (Opsional)
+                          </label>
+                          <div className="grid grid-cols-2 gap-2">
+                            <div>
+                              <label className="block text-[10px] text-slate-600 font-bold mb-0.5">Mulai Cuti:</label>
+                              <input
+                                type="date"
+                                value={empLeaveStart}
+                                onChange={(e) => setEmpLeaveStart(e.target.value)}
+                                className="w-full bg-white border border-slate-200 rounded px-2.5 py-1.5 text-xs text-slate-800 focus:outline-none focus:border-amber-500 cursor-pointer font-medium"
+                              />
+                            </div>
+                            <div>
+                              <label className="block text-[10px] text-slate-600 font-bold mb-0.5">Selesai Cuti:</label>
+                              <input
+                                type="date"
+                                value={empLeaveEnd}
+                                onChange={(e) => setEmpLeaveEnd(e.target.value)}
+                                className="w-full bg-white border border-slate-200 rounded px-2.5 py-1.5 text-xs text-slate-800 focus:outline-none focus:border-amber-500 cursor-pointer font-medium"
+                              />
+                            </div>
+                          </div>
+                        </div>
                       </div>
 
                       <div>
@@ -1404,18 +2091,25 @@ export default function SupervisorPanel({
                               Roster {emp.rosterPattern}
                             </td>
                             <td className="p-4">
-                              <span className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[9px] font-bold uppercase border ${
-                                emp.status === 'Active' 
-                                  ? 'bg-emerald-50 text-emerald-700 border-emerald-250' 
-                                  : emp.status === 'On Leave'
-                                    ? 'bg-amber-50 text-amber-700 border-amber-250'
-                                    : 'bg-rose-50 text-rose-700 border-rose-200'
-                              }`}>
-                                <span className={`w-1.5 h-1.5 rounded-full ${
-                                  emp.status === 'Active' ? 'bg-emerald-500 animate-pulse' : emp.status === 'On Leave' ? 'bg-amber-550' : 'bg-rose-500'
-                                }`}></span>
-                                {emp.status === 'Active' ? 'Aktif' : emp.status === 'On Leave' ? 'Cuti' : emp.status === 'Sick' ? 'Sakit' : 'Non-aktif'}
-                              </span>
+                              <div className="flex flex-col gap-1 items-start">
+                                <span className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[9px] font-bold uppercase border ${
+                                  emp.status === 'Active' 
+                                    ? 'bg-emerald-50 text-emerald-700 border-emerald-250' 
+                                    : emp.status === 'On Leave'
+                                      ? 'bg-amber-50 text-amber-700 border-amber-250'
+                                      : 'bg-rose-50 text-rose-700 border-rose-200'
+                                }`}>
+                                  <span className={`w-1.5 h-1.5 rounded-full ${
+                                    emp.status === 'Active' ? 'bg-emerald-500 animate-pulse' : emp.status === 'On Leave' ? 'bg-amber-550' : 'bg-rose-500'
+                                  }`}></span>
+                                  {emp.status === 'Active' ? 'Aktif' : emp.status === 'On Leave' ? 'Cuti' : emp.status === 'Sick' ? 'Sakit' : 'Non-aktif'}
+                                </span>
+                                {(emp.annualLeaveStartDate || emp.annualLeaveEndDate) && (
+                                  <span className="text-[9px] font-mono text-amber-800 bg-amber-50 border border-amber-200 px-1.5 py-0.5 rounded font-extrabold flex items-center gap-1" title="Rencana Cuti Tahunan">
+                                    🏖️ {emp.annualLeaveStartDate || ''}{emp.annualLeaveEndDate && emp.annualLeaveEndDate !== emp.annualLeaveStartDate ? ` s/d ${emp.annualLeaveEndDate}` : ''}
+                                  </span>
+                                )}
+                              </div>
                             </td>
                             <td className="p-4 text-right flex justify-end gap-1.5">
                               <button
@@ -1504,6 +2198,32 @@ export default function SupervisorPanel({
                                         <option value="Sick">Sakit (Medical Leave)</option>
                                         <option value="Inactive">Resign / Non-aktif</option>
                                       </select>
+                                    </div>
+
+                                    <div className="md:col-span-4 bg-amber-50/70 p-2.5 rounded border border-amber-200">
+                                      <label className="block text-[10px] uppercase text-amber-900 font-extrabold mb-1 font-mono">
+                                        🏖️ Rencana Tanggal Cuti Tahunan (Opsional)
+                                      </label>
+                                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                                        <div>
+                                          <label className="block text-[10px] text-slate-600 font-bold mb-0.5">Mulai Cuti:</label>
+                                          <input
+                                            type="date"
+                                            value={empLeaveStart}
+                                            onChange={(e) => setEmpLeaveStart(e.target.value)}
+                                            className="w-full bg-white border border-slate-200 rounded px-2.5 py-1 text-xs text-slate-800 focus:outline-none focus:border-amber-500 cursor-pointer font-medium"
+                                          />
+                                        </div>
+                                        <div>
+                                          <label className="block text-[10px] text-slate-600 font-bold mb-0.5">Selesai Cuti:</label>
+                                          <input
+                                            type="date"
+                                            value={empLeaveEnd}
+                                            onChange={(e) => setEmpLeaveEnd(e.target.value)}
+                                            className="w-full bg-white border border-slate-200 rounded px-2.5 py-1 text-xs text-slate-800 focus:outline-none focus:border-amber-500 cursor-pointer font-medium"
+                                          />
+                                        </div>
+                                      </div>
                                     </div>
 
                                     <div className="md:col-span-4">
@@ -1666,382 +2386,29 @@ export default function SupervisorPanel({
                 </div>
               </div>
 
-              {/* Setting Unit Setup Form */}
-              {settingFormOpen && (
-                <div className="bg-white p-5 rounded-lg border border-slate-200 shadow-md animate-fadeIn">
-                  <div className="flex items-center justify-between pb-3.5 mb-4 border-b border-slate-100">
-                    <div>
-                      <h4 className="font-extrabold text-slate-800 text-base">
-                        {editingSetting ? 'Ubah Penugasan Roster Unit' : 'Pasang Operator & Roster Pada Unit'}
-                      </h4>
-                      <p className="text-[11px] text-slate-400 font-medium">Hubungkan armada, dua operator, dan rancang perhitungan masa tukar shift.</p>
-                    </div>
-                    <button onClick={resetSettingForm} className="text-slate-400 hover:text-slate-600 cursor-pointer">
-                      <X className="h-5 w-5" />
-                    </button>
-                  </div>
-
-                  <form onSubmit={saveSetting} className="space-y-4">
-                    <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
-                      
-                      {/* Select Group */}
-                      <div>
-                        <label className="block text-[10px] uppercase text-slate-500 font-bold mb-1.5 font-mono">Grup Papan Tulis</label>
-                        <select
-                           value={setGroupId}
-                           onChange={(e) => {
-                             const gId = e.target.value;
-                             setSetGroupId(gId);
-                             if (gId === 'master') {
-                               const masterCodes = settings
-                                 .filter(s => s.groupId === 'master' && s.masterSlotCode)
-                                 .map(s => {
-                                   const match = s.masterSlotCode?.match(/M-(\d+)/i);
-                                   return match ? parseInt(match[1], 10) : 0;
-                                 });
-                               const nextNum = masterCodes.length > 0 ? Math.max(...masterCodes) + 1 : 1;
-                               setSetMasterSlotCode(`M-${nextNum}`);
-                               setSetUnitId('');
-                             } else {
-                               const configuredUnitIds = new Set(settings.map(s => s.unitId));
-                               const firstUnconfigured = units.find(u => !configuredUnitIds.has(u.id));
-                               if (firstUnconfigured) {
-                                 setSetUnitId(firstUnconfigured.id);
-                               }
-                             }
-                           }}
-                           className="w-full bg-slate-50 border border-slate-200 rounded px-3 py-2 text-sm text-slate-800 focus:outline-none focus:border-amber-550 cursor-pointer font-bold"
-                        >
-                          {groups.map(g => (
-                            <option key={g.id} value={g.id}>{g.name}</option>
-                          ))}
-                        </select>
-                      </div>
-
-                      {/* Select Unit or Show Auto Master Slot */}
-                      {setGroupId === 'master' ? (
-                        <div>
-                          <label className="block text-[10px] uppercase text-slate-500 font-bold mb-1.5 font-mono">Slot Master Otomatis</label>
-                          <input
-                            type="text"
-                            value={setMasterSlotCode}
-                            disabled
-                            className="w-full bg-slate-150 border border-slate-200 rounded px-3 py-2 text-sm text-slate-600 font-extrabold font-mono"
-                          />
-                          <p className="text-[10px] text-slate-400 mt-1">Ditentukan otomatis oleh aplikasi.</p>
-                        </div>
-                      ) : (
-                        <div>
-                          <label className="block text-[10px] uppercase text-slate-500 font-bold mb-1.5 font-mono">1. Pilih Unit Alat Berat</label>
-                          <select
-                            value={setUnitId}
-                            onChange={(e) => setSetUnitId(e.target.value)}
-                            required={setGroupId !== 'master'}
-                            className="w-full bg-slate-50 border border-slate-200 rounded px-3 py-2 text-sm text-slate-808 focus:outline-none focus:border-amber-550 cursor-pointer font-bold font-mono"
-                          >
-                            <option value="">-- Pilih Unit Alat --</option>
-                            {units.map(u => {
-                              // Highlight if already configured elsewhere
-                              const isConfigured = settings.some(s => s.unitId === u.id && (!editingSetting || s.id !== editingSetting.id));
-                              return (
-                                <option key={u.id} value={u.id} disabled={isConfigured}>
-                                  {u.unitCode} - {u.brand} {isConfigured ? '(Sudah Ada)' : ''}
-                                </option>
-                              );
-                            })}
-                          </select>
-                        </div>
-                      )}
-
-                      {/* Roster Pattern */}
-                      <div>
-                        <label className="block text-[10px] uppercase text-slate-500 font-bold mb-1.5 font-mono">2. Skema Pola Roster Unit</label>
-                        <select
-                          value={setRosterPattern}
-                          onChange={(e) => setSetRosterPattern(e.target.value as UnitSetting['rosterPattern'])}
-                          className="w-full bg-slate-50 border border-slate-200 rounded px-3 py-2 text-sm text-slate-808 focus:outline-none focus:border-amber-550 cursor-pointer font-bold"
-                        >
-                          <option value="6-1">Roster Kerja 6-1 (6 Hari S/M, 1 Hari OFF Bersama)</option>
-                          <option value="13-1">Roster Kerja 13-1 (13 Hari S/M, 1 Hari OFF Bersama)</option>
-                          <option value="weekly-fixed">Roster Off Tetap (Off pada Hari Libur tetap mingguan)</option>
-                        </select>
-                      </div>
-
-                      {/* Operator 1 */}
-                      <div>
-                        <label className="block text-[10px] uppercase text-slate-500 font-bold mb-1.5 font-mono">3. Operator 1 (Awal Shift Siang)</label>
-                        <select
-                          value={setOp1Id}
-                          onChange={(e) => setSetOp1Id(e.target.value)}
-                          className="w-full bg-slate-50 border border-slate-200 rounded px-3 py-2 text-sm text-slate-808 focus:outline-none focus:border-amber-550 font-bold cursor-pointer"
-                        >
-                          <option value="">-- Kosong / Tanpa Operator --</option>
-                          {employees.map(emp => {
-                            const ftwS1 = getOperatorFTW(emp.nrp, selectedDate, 1, ftwRecords);
-                            const ftwS2 = getOperatorFTW(emp.nrp, selectedDate, 2, ftwRecords);
-                            const tag = ftwS1.status === 'unfit' || ftwS2.status === 'unfit'
-                              ? '🔴 Unfit'
-                              : ftwS1.status === 'rest' || ftwS2.status === 'rest'
-                                ? '🟠 Istirahat'
-                                : ftwS1.status === 'conditional' || ftwS2.status === 'conditional'
-                                  ? '🟡 Pengawasan'
-                                  : ftwS1.status === 'fit' 
-                                    ? '🟢 Fit (Shift 1)' 
-                                    : ftwS2.status === 'fit' 
-                                      ? '🟢 Fit (Shift 2)' 
-                                      : '⚪ Belum FTW';
-                            return (
-                              <option key={emp.id} value={emp.id} disabled={emp.id === setOp2Id}>
-                                {emp.name} [NIK: {emp.nrp}] - {tag} (Roster {emp.rosterPattern})
-                              </option>
-                            );
-                          })}
-                        </select>
-                        <p className="text-[10px] text-slate-400 mt-1.5">Hari pertama siklus akan dimulai pada Shift 1 (Siang).</p>
-                      </div>
-
-                      {/* Operator 2 */}
-                      <div>
-                        <label className="block text-[10px] uppercase text-slate-500 font-bold mb-1.5 font-mono">4. Operator 2 (Awal Shift Malam)</label>
-                        <select
-                          value={setOp2Id}
-                          onChange={(e) => setSetOp2Id(e.target.value)}
-                          className="w-full bg-slate-50 border border-slate-200 rounded px-3 py-2 text-sm text-slate-808 focus:outline-none focus:border-amber-550 font-bold cursor-pointer"
-                        >
-                          <option value="">-- Kosong / Tanpa Operator --</option>
-                          {employees.map(emp => {
-                            const ftwS1 = getOperatorFTW(emp.nrp, selectedDate, 1, ftwRecords);
-                            const ftwS2 = getOperatorFTW(emp.nrp, selectedDate, 2, ftwRecords);
-                            const tag = ftwS1.status === 'unfit' || ftwS2.status === 'unfit'
-                              ? '🔴 Unfit'
-                              : ftwS1.status === 'rest' || ftwS2.status === 'rest'
-                                ? '🟠 Istirahat'
-                                : ftwS1.status === 'conditional' || ftwS2.status === 'conditional'
-                                  ? '🟡 Pengawasan'
-                                  : ftwS1.status === 'fit' 
-                                    ? '🟢 Fit (Shift 1)' 
-                                    : ftwS2.status === 'fit' 
-                                      ? '🟢 Fit (Shift 2)' 
-                                      : '⚪ Belum FTW';
-                            return (
-                              <option key={emp.id} value={emp.id} disabled={emp.id === setOp1Id}>
-                                {emp.name} [NIK: {emp.nrp}] - {tag} (Roster {emp.rosterPattern})
-                              </option>
-                            );
-                          })}
-                        </select>
-                        <p className="text-[10px] text-slate-400 mt-1.5">Hari pertama siklus akan dimulai pada Shift 2 (Malam).</p>
-                      </div>
-
-                      {/* Hari Pertama Siang Reference date */}
-                      <div>
-                        <label className="block text-[10px] uppercase text-slate-500 font-bold mb-1.5 font-mono">5. Hari Pertama Siang (Tanggal Mulai Siklus)</label>
-                        <input
-                          type="date"
-                          value={setStartSiangDate}
-                          onChange={(e) => setSetStartSiangDate(e.target.value)}
-                          required
-                          className="w-full bg-slate-50 border border-slate-200 rounded px-3 py-2 text-sm text-slate-800 focus:outline-none focus:border-amber-550 cursor-pointer"
-                        />
-                        <p className="text-[10px] text-slate-400 mt-1.5">Tanggal acuan dimulainya siklus pembagian shift pertama.</p>
-                      </div>
-
-                      {/* Fixed Off Day select (shown only if rosterPattern is weekly-fixed) */}
-                      {setRosterPattern === 'weekly-fixed' && (
-                        <div className="sm:col-span-2">
-                          <label className="block text-[10px] uppercase text-slate-500 font-bold mb-1.5 font-mono">6. Hari Off Tetap Mingguan (Libur Bersama)</label>
-                          <select
-                            value={setFixedOffDay}
-                            onChange={(e) => setSetFixedOffDay(Number(e.target.value))}
-                            className="w-full bg-slate-50 border border-slate-200 rounded px-3 py-2 text-sm text-slate-808 focus:outline-none focus:border-teal-500 font-bold cursor-pointer"
-                          >
-                            <option value={0}>Hari Minggu (Sunday)</option>
-                            <option value={1}>Hari Senin (Monday)</option>
-                            <option value={2}>Hari Selasa (Tuesday)</option>
-                            <option value={3}>Hari Rabu (Wednesday)</option>
-                            <option value={4}>Hari Kamis (Thursday)</option>
-                            <option value={5}>Hari Jumat (Friday)</option>
-                            <option value={6}>Hari Sabtu (Saturday)</option>
-                          </select>
-                          <p className="text-[10px] text-slate-400 mt-1.5">Unit dan kedua operator diliburkan serentak pada hari ini setiap minggunya.</p>
-                        </div>
-                      )}
-
-                      {/* Pengaturan Shift Hari Ke-7 (Khusus Roster 13-1) */}
-                      {setRosterPattern === '13-1' && (
-                        <div className="col-span-1 sm:col-span-2 md:col-span-3 bg-amber-50/70 border border-amber-300/80 rounded-xl p-4 shadow-xs">
-                          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-1 mb-2">
-                            <label className="text-xs uppercase text-amber-900 font-extrabold font-mono flex items-center gap-1.5">
-                              <span className="w-2 h-2 rounded-full bg-amber-500 animate-pulse" />
-                              6. Pengaturan Shift Hari Ke-7 (Pola Roster 13-1)
-                            </label>
-                            <span className="text-[11px] font-black uppercase font-mono px-2.5 py-0.5 rounded-full border bg-white border-amber-300 text-amber-800 shadow-xs inline-block">
-                              Pilihan: {setRoster13_1Day7Shift === 'malam' ? '🌙 Shift Malam' : '☀️ Shift Siang'}
-                            </span>
-                          </div>
-                          
-                          <p className="text-xs text-amber-800/80 mb-3 leading-relaxed">
-                            Tentukan apakah penugasan pada <strong>Hari ke-7 siklus</strong> berjalan sebagai <strong>Shift Siang</strong> (standar) atau langsung beralih ke <strong>Shift Malam</strong>:
-                          </p>
-
-                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                            <button
-                              type="button"
-                              onClick={() => setSetRoster13_1Day7Shift('siang')}
-                              className={`p-3 rounded-lg border text-left cursor-pointer transition-all flex flex-col gap-1.5 ${
-                                setRoster13_1Day7Shift === 'siang'
-                                  ? 'bg-white border-amber-500 ring-2 ring-amber-400/50 shadow-sm'
-                                  : 'bg-white/60 border-amber-200/60 hover:bg-white text-slate-600'
-                              }`}
-                            >
-                              <div className="flex items-center justify-between">
-                                <span className="text-xs font-black text-amber-900 flex items-center gap-1.5">
-                                  ☀️ Shift Siang (7 Siang, 6 Malam)
-                                </span>
-                                {setRoster13_1Day7Shift === 'siang' && (
-                                  <span className="text-[10px] font-extrabold text-amber-700 bg-amber-100 px-2 py-0.5 rounded">
-                                    Aktif
-                                  </span>
-                                )}
-                              </div>
-                              <p className="text-[11px] text-slate-600 leading-normal">
-                                • <strong>Total Roster Operator:</strong> 7 hari Siang, 6 hari Malam, 1 hari OFF.<br />
-                                • <strong>Hari ke-7:</strong> Op 1 tetap <strong>Shift Siang</strong> (Siang ke-7), Op 2 <strong>OFF</strong>.<br />
-                                • <strong>Hari ke-14:</strong> Op 1 <strong>OFF</strong>, Op 2 tetap <strong>Shift Siang</strong> (Siang ke-7).
-                              </p>
-                            </button>
-
-                            <button
-                              type="button"
-                              onClick={() => setSetRoster13_1Day7Shift('malam')}
-                              className={`p-3 rounded-lg border text-left cursor-pointer transition-all flex flex-col gap-1.5 ${
-                                setRoster13_1Day7Shift === 'malam'
-                                  ? 'bg-white border-indigo-500 ring-2 ring-indigo-400/50 shadow-sm'
-                                  : 'bg-white/60 border-amber-200/60 hover:bg-white text-slate-600'
-                              }`}
-                            >
-                              <div className="flex items-center justify-between">
-                                <span className="text-xs font-black text-indigo-900 flex items-center gap-1.5">
-                                  🌙 Shift Malam (6 Siang, 7 Malam)
-                                </span>
-                                {setRoster13_1Day7Shift === 'malam' && (
-                                  <span className="text-[10px] font-extrabold text-indigo-700 bg-indigo-100 px-2 py-0.5 rounded">
-                                    Aktif
-                                  </span>
-                                )}
-                              </div>
-                              <p className="text-[11px] text-slate-600 leading-normal">
-                                • <strong>Total Roster Operator:</strong> 6 hari Siang, 7 hari Malam, 1 hari OFF.<br />
-                                • <strong>Hari ke-7:</strong> Op 1 beralih ke <strong>Shift Malam</strong> (Malam ke-1), Op 2 <strong>OFF</strong>.<br />
-                                • <strong>Hari ke-14:</strong> Op 1 <strong>OFF</strong>, Op 2 beralih ke <strong>Shift Malam</strong> (Malam ke-1).
-                              </p>
-                            </button>
-                          </div>
-                        </div>
-                      )}
-
-                      {/* Backup Allocation Priorities (Only for Operator Master Settings) */}
-                      {setGroupId === 'master' && (
-                        <div className="col-span-1 sm:col-span-2 md:col-span-3 mt-2 bg-amber-500/5 border border-amber-500/15 p-4 rounded-lg space-y-4">
-                          <div className="flex items-center gap-2 pb-2 border-b border-amber-500/10">
-                            <span className="text-amber-500 font-extrabold text-xs">★</span>
-                            <h5 className="font-extrabold text-xs text-amber-900 uppercase tracking-wide">
-                              Pengaturan Unit Master
-                            </h5>
-                          </div>
-                          <p className="text-[11px] text-slate-505 leading-relaxed font-semibold font-mono">
-                            Sesuaikan unit prioritas utama yang harus d-backup terlebih dahulu oleh Operator Master ini sebelum beralih ke unit jenis lain.
-                          </p>
-                          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 pt-1">
-                            
-                            {/* Priority Type 1 */}
-                            <div>
-                              <label className="block text-[10px] uppercase text-emerald-800 font-black mb-1 font-mono">1. Jenis Unit Prioritas #1</label>
-                              <select
-                                value={setBackupPriorityType1}
-                                onChange={(e) => setSetBackupPriorityType1(e.target.value)}
-                                className="w-full bg-white border border-slate-200 rounded px-2.5 py-1.5 text-xs text-slate-808 font-bold cursor-pointer focus:outline-none focus:border-amber-500"
-                              >
-                                <option value="">-- Tanpa Prioritas --</option>
-                                {EQUIPMENT_CATEGORIES.map(cat => (
-                                  <option key={cat} value={cat}>{cat}</option>
-                                ))}
-                              </select>
-                            </div>
-
-                            {/* Priority Type 2 */}
-                            <div>
-                              <label className="block text-[10px] uppercase text-slate-500 font-bold mb-1 font-mono">2. Jenis Unit Prioritas #2</label>
-                              <select
-                                value={setBackupPriorityType2}
-                                onChange={(e) => setSetBackupPriorityType2(e.target.value)}
-                                className="w-full bg-white border border-slate-200 rounded px-2.5 py-1.5 text-xs text-slate-808 font-bold cursor-pointer focus:outline-none focus:border-amber-500"
-                              >
-                                <option value="">-- Tanpa Prioritas --</option>
-                                {EQUIPMENT_CATEGORIES.map(cat => (
-                                  <option key={cat} value={cat}>{cat}</option>
-                                ))}
-                              </select>
-                            </div>
-
-                            {/* Specific Unit 1 */}
-                            <div>
-                              <label className="block text-[10px] uppercase text-cyan-800 font-black mb-1 font-mono">3. No Unit Prioritas #1</label>
-                              <select
-                                value={setBackupPriorityUnitId1}
-                                onChange={(e) => setSetBackupPriorityUnitId1(e.target.value)}
-                                className="w-full bg-white border border-slate-200 rounded px-2.5 py-1.5 text-xs text-slate-808 font-bold font-mono cursor-pointer focus:outline-none focus:border-amber-500"
-                              >
-                                <option value="">-- Tanpa Prioritas --</option>
-                                {units.map(u => (
-                                  <option key={u.id} value={u.id}>
-                                    {u.unitCode} ({u.type})
-                                  </option>
-                                ))}
-                              </select>
-                            </div>
-
-                            {/* Specific Unit 2 */}
-                            <div>
-                              <label className="block text-[10px] uppercase text-slate-500 font-bold mb-1 font-mono">4. No Unit Prioritas #2</label>
-                              <select
-                                value={setBackupPriorityUnitId2}
-                                onChange={(e) => setSetBackupPriorityUnitId2(e.target.value)}
-                                className="w-full bg-white border border-slate-200 rounded px-2.5 py-1.5 text-xs text-slate-808 font-bold font-mono cursor-pointer focus:outline-none focus:border-amber-500"
-                              >
-                                <option value="">-- Tanpa Prioritas --</option>
-                                {units.map(u => (
-                                  <option key={u.id} value={u.id}>
-                                    {u.unitCode} ({u.type})
-                                  </option>
-                                ))}
-                              </select>
-                            </div>
-
-                          </div>
-                        </div>
-                      )}
-
-                    </div>
-
-                    <div className="flex justify-end gap-2 border-t border-slate-100 pt-4">
-                      <button
-                        type="button"
-                        onClick={resetSettingForm}
-                        className="px-4 py-2 border border-slate-200 bg-transparent rounded text-xs font-bold text-slate-505 hover:bg-slate-5 transition cursor-pointer"
-                      >
-                        Batalkan
-                      </button>
-                      <button
-                        type="submit"
-                        className="px-5 py-2 bg-amber-500 hover:bg-amber-600 text-slate-950 font-black rounded text-xs transition flex items-center gap-1 cursor-pointer"
-                      >
-                        <Check className="h-3.5 w-3.5" /> Simpan Settingan Master
-                      </button>
-                    </div>
-                  </form>
+              {/* Setting Unit Top Form (Only when adding a NEW setting in inline mode) */}
+              {settingFormOpen && !editingSetting && settingFormMode === 'inline' && (
+                <div id="new-setting-form-top" className="animate-fadeIn">
+                  {renderSettingFormContent(false)}
                 </div>
               )}
+
+              {/* Floating Modal Overlay for Setting Form (when floating mode is chosen) */}
+              <AnimatePresence>
+                {settingFormOpen && settingFormMode === 'floating' && (
+                  <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-5 bg-slate-900/60 backdrop-blur-xs overflow-y-auto">
+                    <motion.div
+                      initial={{ opacity: 0, scale: 0.95, y: 15 }}
+                      animate={{ opacity: 1, scale: 1, y: 0 }}
+                      exit={{ opacity: 0, scale: 0.95, y: 15 }}
+                      transition={{ duration: 0.18 }}
+                      className="w-full max-w-4xl my-auto max-h-[92vh] overflow-y-auto shadow-2xl"
+                    >
+                      {renderSettingFormContent(true)}
+                    </motion.div>
+                  </div>
+                )}
+              </AnimatePresence>
 
               {/* FTW Online Synchronization & NIK Monitoring (Compact & Collapsible) */}
               <div className="bg-white rounded-xl border border-slate-200 shadow-xs overflow-hidden transition-all">
@@ -2353,13 +2720,24 @@ export default function SupervisorPanel({
                     const op2FTW = getOperatorFTW(op2?.nrp, selectedDate, op2Role === 'S' ? 1 : op2Role === 'M' ? 2 : undefined, ftwRecords, op2?.name);
                     const op2Style = getFTWStyleConfig(op2FTW.status);
 
+                    // Check if operators are on annual leave on selectedDate
+                    const opShift1OnLeave = opShift1 ? isEmployeeOnLeave(opShift1, selectedDate, setting.operator1Id === opShift1.id ? setting.op1LeaveStartDate : setting.op2LeaveStartDate, setting.operator1Id === opShift1.id ? setting.op1LeaveEndDate : setting.op2LeaveEndDate) : false;
+                    const opShift2OnLeave = opShift2 ? isEmployeeOnLeave(opShift2, selectedDate, setting.operator1Id === opShift2.id ? setting.op1LeaveStartDate : setting.op2LeaveStartDate, setting.operator1Id === opShift2.id ? setting.op1LeaveEndDate : setting.op2LeaveEndDate) : false;
+
+                    // Check if this card is currently being edited
+                    const isBeingEdited = editingSetting && editingSetting.id === setting.id;
+
                     return (
                       <div key={setting.id} id={`setting-card-${setting.id}`} className="transition">
                         {/* Summary Row */}
                         <div
                           onClick={() => setExpandedSettingId(isExpanded ? null : setting.id)}
                           className={`flex flex-col sm:flex-row sm:items-center sm:justify-between p-4 cursor-pointer hover:bg-slate-50 gap-4 transition ${
-                            isExpanded ? 'bg-amber-50/80 border-l-4 border-amber-500' : 'border-l-4 border-transparent'
+                            isBeingEdited
+                              ? 'bg-amber-100/70 border-l-4 border-amber-600 ring-2 ring-amber-400/40'
+                              : isExpanded 
+                                ? 'bg-amber-50/80 border-l-4 border-amber-500' 
+                                : 'border-l-4 border-transparent'
                           }`}
                         >
                           <div className="flex items-center gap-4">
@@ -2372,82 +2750,134 @@ export default function SupervisorPanel({
                                 <span className="text-[10px] text-slate-400 font-mono">
                                   Roster: {setting.rosterPattern === 'weekly-fixed' ? 'Off Mingguan' : setting.rosterPattern}
                                 </span>
+                                {(opShift1OnLeave || opShift2OnLeave) && (
+                                  <span className="px-2 py-0.5 rounded bg-amber-100 text-amber-900 border border-amber-300 text-[10px] font-extrabold flex items-center gap-1">
+                                    🏖️ OPERATOR CUTI
+                                  </span>
+                                )}
+                                {isBeingEdited && (
+                                  <span className="px-2 py-0.5 rounded text-[9.5px] font-black uppercase tracking-wider bg-amber-500 text-slate-950 flex items-center gap-1 shadow-2xs animate-pulse">
+                                    ✏️ SEDANG DI-EDIT
+                                  </span>
+                                )}
                               </div>
                               
                               {/* Kotak Settingan Manpower Berdasarkan Shift Hari Ini dengan NIK & Status FTW Online */}
                               <div className="flex flex-wrap items-center gap-2 text-xs font-mono">
                                 
                                 {/* Kotak Operator Shift 1 (Siang) */}
-                                <div 
-                                  className={`flex items-center gap-2 px-3 py-1.5 rounded-lg border transition-all ${
-                                    opShift1FTW.status === 'fit'
-                                      ? 'bg-emerald-50/90 border-emerald-400 text-emerald-950 ring-1 ring-emerald-400/20'
-                                      : opShift1FTW.status === 'unfit'
-                                        ? 'bg-rose-50 border-rose-400 text-rose-950 ring-2 ring-rose-400/40 shadow-xs'
-                                        : 'bg-slate-100 border-slate-300 text-slate-700'
-                                  }`}
-                                  title={`Status FTW Shift 1: ${opShift1Style.description}${opShift1Time ? ` (Diisi jam ${opShift1Time} WIB)` : ''}`}
-                                >
-                                  <div className="flex items-center gap-1 font-bold text-slate-600 uppercase text-[10px]">
-                                    <Sun className="h-3 w-3 text-amber-500" />
-                                    <span>Shift 1 (Siang):</span>
+                                {opShift1OnLeave ? (
+                                  <div 
+                                    className="flex items-center gap-2 px-3 py-1.5 rounded-lg border bg-amber-50/90 border-amber-300 text-amber-950 ring-1 ring-amber-400/20"
+                                    title={`Operator ${opShift1?.name} sedang Cuti Tahunan pada ${formatIndonesianDate(selectedDate)}`}
+                                  >
+                                    <div className="flex items-center gap-1 font-bold text-amber-800 uppercase text-[10px]">
+                                      <Sun className="h-3 w-3 text-amber-500" />
+                                      <span>Shift 1 (Siang):</span>
+                                    </div>
+                                    <span className="font-black text-slate-800 line-through opacity-70">{opShift1?.name}</span>
+                                    {opShift1 && (
+                                      <span className="font-extrabold text-amber-700 bg-amber-500/10 px-1 py-0.2 rounded text-[10px] border border-amber-500/20">
+                                        NIK: {opShift1.nrp}
+                                      </span>
+                                    )}
+                                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[8.5px] font-black uppercase tracking-wider bg-amber-500 text-slate-950 shadow-2xs">
+                                      🏖️ CUTI TAHUNAN
+                                    </span>
                                   </div>
-                                  <span className="font-black text-slate-900">{opShift1?.name || 'BELUM DI-SET'}</span>
-                                  {opShift1 && (
-                                    <span className="font-extrabold text-amber-700 bg-amber-500/10 px-1 py-0.2 rounded text-[10px] border border-amber-500/20">
-                                      NIK: {opShift1.nrp}
-                                    </span>
-                                  )}
-                                  {opShift1 && (
-                                    <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-[8.5px] font-black uppercase tracking-wider ${opShift1Style.badgeBg}`}>
-                                      <span className={`w-1.5 h-1.5 rounded-full ${
-                                        opShift1FTW.status === 'fit' ? 'bg-white' : opShift1FTW.status === 'unfit' ? 'bg-white' : 'bg-slate-200'
-                                      }`} />
-                                      {opShift1Style.label}
-                                    </span>
-                                  )}
-                                  {opShift1Time && (
-                                    <span className="text-[9px] font-mono font-bold text-slate-600 bg-white/90 px-1.5 py-0.2 rounded border border-slate-200" title="Jam Submit Form FTW">
-                                      {opShift1Time} WIB
-                                    </span>
-                                  )}
-                                </div>
+                                ) : (
+                                  <div 
+                                    className={`flex items-center gap-2 px-3 py-1.5 rounded-lg border transition-all ${
+                                      opShift1FTW.status === 'fit'
+                                        ? 'bg-emerald-50/90 border-emerald-400 text-emerald-950 ring-1 ring-emerald-400/20'
+                                        : opShift1FTW.status === 'unfit'
+                                          ? 'bg-rose-50 border-rose-400 text-rose-950 ring-2 ring-rose-400/40 shadow-xs'
+                                          : 'bg-slate-100 border-slate-300 text-slate-700'
+                                    }`}
+                                    title={`Status FTW Shift 1: ${opShift1Style.description}${opShift1Time ? ` (Diisi jam ${opShift1Time} WIB)` : ''}`}
+                                  >
+                                    <div className="flex items-center gap-1 font-bold text-slate-600 uppercase text-[10px]">
+                                      <Sun className="h-3 w-3 text-amber-500" />
+                                      <span>Shift 1 (Siang):</span>
+                                    </div>
+                                    <span className="font-black text-slate-900">{opShift1?.name || 'BELUM DI-SET'}</span>
+                                    {opShift1 && (
+                                      <span className="font-extrabold text-amber-700 bg-amber-500/10 px-1 py-0.2 rounded text-[10px] border border-amber-500/20">
+                                        NIK: {opShift1.nrp}
+                                      </span>
+                                    )}
+                                    {opShift1 && (
+                                      <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-[8.5px] font-black uppercase tracking-wider ${opShift1Style.badgeBg}`}>
+                                        <span className={`w-1.5 h-1.5 rounded-full ${
+                                          opShift1FTW.status === 'fit' ? 'bg-white' : opShift1FTW.status === 'unfit' ? 'bg-white' : 'bg-slate-200'
+                                        }`} />
+                                        {opShift1Style.label}
+                                      </span>
+                                    )}
+                                    {opShift1Time && (
+                                      <span className="text-[9px] font-mono font-bold text-slate-600 bg-white/90 px-1.5 py-0.2 rounded border border-slate-200" title="Jam Submit Form FTW">
+                                        {opShift1Time} WIB
+                                      </span>
+                                    )}
+                                  </div>
+                                )}
 
                                 {/* Kotak Operator Shift 2 (Malam - Misal diisi 16.00-18.00) */}
-                                <div 
-                                  className={`flex items-center gap-2 px-3 py-1.5 rounded-lg border transition-all ${
-                                    opShift2FTW.status === 'fit'
-                                      ? 'bg-emerald-50/90 border-emerald-400 text-emerald-950 ring-2 ring-emerald-400/30'
-                                      : opShift2FTW.status === 'unfit'
-                                        ? 'bg-rose-50 border-rose-400 text-rose-950 ring-2 ring-rose-400/40 shadow-xs'
-                                        : 'bg-slate-100 border-slate-300 text-slate-700'
-                                  }`}
-                                  title={`Status FTW Shift 2: ${opShift2Style.description}${opShift2Time ? ` (Diisi jam ${opShift2Time} WIB)` : ''}`}
-                                >
-                                  <div className="flex items-center gap-1 font-bold text-indigo-700 uppercase text-[10px]">
-                                    <Moon className="h-3 w-3 text-indigo-600" />
-                                    <span>Shift 2 (Malam):</span>
+                                {opShift2OnLeave ? (
+                                  <div 
+                                    className="flex items-center gap-2 px-3 py-1.5 rounded-lg border bg-amber-50/90 border-amber-300 text-amber-950 ring-1 ring-amber-400/20"
+                                    title={`Operator ${opShift2?.name} sedang Cuti Tahunan pada ${formatIndonesianDate(selectedDate)}`}
+                                  >
+                                    <div className="flex items-center gap-1 font-bold text-indigo-700 uppercase text-[10px]">
+                                      <Moon className="h-3 w-3 text-indigo-600" />
+                                      <span>Shift 2 (Malam):</span>
+                                    </div>
+                                    <span className="font-black text-slate-800 line-through opacity-70">{opShift2?.name}</span>
+                                    {opShift2 && (
+                                      <span className="font-extrabold text-indigo-700 bg-indigo-500/10 px-1 py-0.2 rounded text-[10px] border border-indigo-500/20">
+                                        NIK: {opShift2.nrp}
+                                      </span>
+                                    )}
+                                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[8.5px] font-black uppercase tracking-wider bg-amber-500 text-slate-950 shadow-2xs">
+                                      🏖️ CUTI TAHUNAN
+                                    </span>
                                   </div>
-                                  <span className="font-black text-slate-900">{opShift2?.name || 'BELUM DI-SET'}</span>
-                                  {opShift2 && (
-                                    <span className="font-extrabold text-indigo-700 bg-indigo-500/10 px-1 py-0.2 rounded text-[10px] border border-indigo-500/20">
-                                      NIK: {opShift2.nrp}
-                                    </span>
-                                  )}
-                                  {opShift2 && (
-                                    <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-[8.5px] font-black uppercase tracking-wider ${opShift2Style.badgeBg}`}>
-                                      <span className={`w-1.5 h-1.5 rounded-full ${
-                                        opShift2FTW.status === 'fit' ? 'bg-white' : opShift2FTW.status === 'unfit' ? 'bg-white' : 'bg-slate-200'
-                                      }`} />
-                                      {opShift2Style.label}
-                                    </span>
-                                  )}
-                                  {opShift2Time && (
-                                    <span className="text-[9px] font-mono font-black text-indigo-800 bg-white/90 px-1.5 py-0.2 rounded border border-indigo-200 shadow-2xs" title="Jam Submit Form FTW (Sore/Malam)">
-                                      {opShift2Time} WIB
-                                    </span>
-                                  )}
-                                </div>
+                                ) : (
+                                  <div 
+                                    className={`flex items-center gap-2 px-3 py-1.5 rounded-lg border transition-all ${
+                                      opShift2FTW.status === 'fit'
+                                        ? 'bg-emerald-50/90 border-emerald-400 text-emerald-950 ring-2 ring-emerald-400/30'
+                                        : opShift2FTW.status === 'unfit'
+                                          ? 'bg-rose-50 border-rose-400 text-rose-950 ring-2 ring-rose-400/40 shadow-xs'
+                                          : 'bg-slate-100 border-slate-300 text-slate-700'
+                                    }`}
+                                    title={`Status FTW Shift 2: ${opShift2Style.description}${opShift2Time ? ` (Diisi jam ${opShift2Time} WIB)` : ''}`}
+                                  >
+                                    <div className="flex items-center gap-1 font-bold text-indigo-700 uppercase text-[10px]">
+                                      <Moon className="h-3 w-3 text-indigo-600" />
+                                      <span>Shift 2 (Malam):</span>
+                                    </div>
+                                    <span className="font-black text-slate-900">{opShift2?.name || 'BELUM DI-SET'}</span>
+                                    {opShift2 && (
+                                      <span className="font-extrabold text-indigo-700 bg-indigo-500/10 px-1 py-0.2 rounded text-[10px] border border-indigo-500/20">
+                                        NIK: {opShift2.nrp}
+                                      </span>
+                                    )}
+                                    {opShift2 && (
+                                      <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-[8.5px] font-black uppercase tracking-wider ${opShift2Style.badgeBg}`}>
+                                        <span className={`w-1.5 h-1.5 rounded-full ${
+                                          opShift2FTW.status === 'fit' ? 'bg-white' : opShift2FTW.status === 'unfit' ? 'bg-white' : 'bg-slate-200'
+                                        }`} />
+                                        {opShift2Style.label}
+                                      </span>
+                                    )}
+                                    {opShift2Time && (
+                                      <span className="text-[9px] font-mono font-black text-indigo-800 bg-white/90 px-1.5 py-0.2 rounded border border-indigo-200 shadow-2xs" title="Jam Submit Form FTW (Sore/Malam)">
+                                        {opShift2Time} WIB
+                                      </span>
+                                    )}
+                                  </div>
+                                )}
 
                                 {/* Kotak Operator yang OFF / Libur hari ini jika ada */}
                                 {offOperators.length > 0 && (
@@ -2525,10 +2955,29 @@ export default function SupervisorPanel({
                             </div>
                             <div className="flex items-center gap-2">
                               <button
-                                onClick={(e) => { e.stopPropagation(); startEditSetting(setting); }}
-                                className="p-1 px-2.5 text-[11px] font-bold text-slate-600 hover:text-slate-900 rounded border border-slate-200 hover:border-amber-500 hover:bg-slate-50 transition flex items-center gap-1 cursor-pointer"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  if (isBeingEdited) {
+                                    resetSettingForm();
+                                  } else {
+                                    startEditSetting(setting);
+                                  }
+                                }}
+                                className={`p-1 px-2.5 text-[11px] font-bold rounded border transition flex items-center gap-1 cursor-pointer ${
+                                  isBeingEdited
+                                    ? 'bg-amber-500 text-slate-950 border-amber-600 hover:bg-amber-400 shadow-xs'
+                                    : 'text-slate-600 hover:text-slate-900 border-slate-200 hover:border-amber-500 hover:bg-slate-50'
+                                }`}
                               >
-                                <Pencil className="h-3 w-3" /> Edit
+                                {isBeingEdited ? (
+                                  <>
+                                    <X className="h-3 w-3" /> Batal Edit
+                                  </>
+                                ) : (
+                                  <>
+                                    <Pencil className="h-3 w-3" /> Edit
+                                  </>
+                                )}
                               </button>
                               <button
                                 onClick={(e) => deleteSetting(setting.id, e)}
@@ -2539,6 +2988,17 @@ export default function SupervisorPanel({
                             </div>
                           </div>
                         </div>
+
+                        {/* ==================== INLINE EDIT FORM (LANGSUNG DI BAWAH KARTU UNIT) ==================== */}
+                        {isBeingEdited && settingFormMode === 'inline' && (
+                          <div 
+                            id={`edit-setting-inline-${setting.id}`}
+                            className="bg-amber-50/30 border-t-2 border-b-2 border-amber-400 p-4 sm:p-6 shadow-md transition-all animate-fadeIn"
+                            onClick={(e) => e.stopPropagation()}
+                          >
+                            {renderSettingFormContent(false)}
+                          </div>
+                        )}
 
                         {/* ==================== EXPANDED AREA: CALENDAR ROTATION MOCKUP ==================== */}
                         {/* This perfectly replicates the Image 2 Layout uploaded by user */}
@@ -2641,10 +3101,25 @@ export default function SupervisorPanel({
                                     
                                     {/* 8-Day cells mapping Operator 1 */}
                                     {rollingDates.map((dateStr) => {
+                                      const isLeave = op1 ? isEmployeeOnLeave(op1, dateStr, setting.op1LeaveStartDate, setting.op1LeaveEndDate) : false;
                                       const shift = calculateShift(setting, dateStr);
                                       const isDay = shift.operator1Role === 'S';
                                       const isNight = shift.operator1Role === 'M';
                                       const isOff = shift.operator1Role === 'OFF';
+
+                                      if (isLeave) {
+                                        return (
+                                          <td
+                                            key={`op1-${dateStr}`}
+                                            className="p-3 border-r border-slate-200 font-mono text-xs tracking-tight text-center bg-amber-50/90 text-amber-900"
+                                            title={`Operator 1 Cuti Tahunan pada ${dateStr}`}
+                                          >
+                                            <span className="text-[10px] tracking-tight text-amber-900 border border-amber-300 px-1 py-0.5 rounded-sm bg-amber-100 font-black shadow-2xs">
+                                              CUTI
+                                            </span>
+                                          </td>
+                                        );
+                                      }
 
                                       return (
                                         <td
@@ -2686,10 +3161,25 @@ export default function SupervisorPanel({
 
                                     {/* 8-Day cells mapping Operator 2 */}
                                     {rollingDates.map((dateStr) => {
+                                      const isLeave = op2 ? isEmployeeOnLeave(op2, dateStr, setting.op2LeaveStartDate, setting.op2LeaveEndDate) : false;
                                       const shift = calculateShift(setting, dateStr);
                                       const isDay = shift.operator2Role === 'S';
                                       const isNight = shift.operator2Role === 'M';
                                       const isOff = shift.operator2Role === 'OFF';
+
+                                      if (isLeave) {
+                                        return (
+                                          <td
+                                            key={`op2-${dateStr}`}
+                                            className="p-3 border-r border-slate-200 font-mono text-xs tracking-tight text-center bg-amber-50/90 text-amber-900"
+                                            title={`Operator 2 Cuti Tahunan pada ${dateStr}`}
+                                          >
+                                            <span className="text-[10px] tracking-tight text-amber-900 border border-amber-300 px-1 py-0.5 rounded-sm bg-amber-100 font-black shadow-2xs">
+                                              CUTI
+                                            </span>
+                                          </td>
+                                        );
+                                      }
 
                                       return (
                                         <td

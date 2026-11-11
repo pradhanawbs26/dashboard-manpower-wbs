@@ -5,7 +5,7 @@
 
 import React, { useState, useMemo } from 'react';
 import { HeavyUnit, Employee, UnitSetting, UnitGroup, BackupTransfer, FTWRecord } from '../types';
-import { calculateShift, formatIndonesianDate, formatIndonesianDayName } from '../utils/scheduler';
+import { calculateShift, formatIndonesianDate, formatIndonesianDayName, isEmployeeOnLeave } from '../utils/scheduler';
 import { getOperatorFTW, getFTWStyleConfig } from '../utils/ftwHelper';
 import { Search, Calendar, ShieldAlert, CheckCircle2, Moon, Sun, AlertTriangle, ListFilter, Users, HeartPulse, X, Copy, Check, Filter, Clock, AlertCircle } from 'lucide-react';
 import { motion } from 'motion/react';
@@ -120,26 +120,36 @@ export default function FieldMonitor({
         let originalOperator: Employee | null = null;
 
         const isConfiguredEmpty = selectedShift === 1 ? !setting.operator1Id : !setting.operator2Id;
+        const isOp1OnLeave = isEmployeeOnLeave(op1, selectedDate, setting.op1LeaveStartDate, setting.op1LeaveEndDate);
+        const isOp2OnLeave = isEmployeeOnLeave(op2, selectedDate, setting.op2LeaveStartDate, setting.op2LeaveEndDate);
 
         if (selectedShift === 1) { // Shift Siang
           if (shiftInfo.operator1Role === 'S') {
-            activeOperator = op1 || null;
-            activeRoleStatus = 'S';
             originalOperator = op1 || null;
+            if (!isOp1OnLeave) {
+              activeOperator = op1 || null;
+              activeRoleStatus = 'S';
+            }
           } else if (shiftInfo.operator2Role === 'S') {
-            activeOperator = op2 || null;
-            activeRoleStatus = 'S';
             originalOperator = op2 || null;
+            if (!isOp2OnLeave) {
+              activeOperator = op2 || null;
+              activeRoleStatus = 'S';
+            }
           }
         } else { // Shift Malam
           if (shiftInfo.operator1Role === 'M') {
-            activeOperator = op1 || null;
-            activeRoleStatus = 'M';
             originalOperator = op1 || null;
+            if (!isOp1OnLeave) {
+              activeOperator = op1 || null;
+              activeRoleStatus = 'M';
+            }
           } else if (shiftInfo.operator2Role === 'M') {
-            activeOperator = op2 || null;
-            activeRoleStatus = 'M';
             originalOperator = op2 || null;
+            if (!isOp2OnLeave) {
+              activeOperator = op2 || null;
+              activeRoleStatus = 'M';
+            }
           }
         }
 
@@ -288,21 +298,32 @@ export default function FieldMonitor({
         let activeMop: Employee | null = null;
         let activeRole: 'S' | 'M' | 'OFF' = 'OFF';
 
+        const isMop1OnLeave = isEmployeeOnLeave(mop1, selectedDate, s.op1LeaveStartDate, s.op1LeaveEndDate);
+        const isMop2OnLeave = isEmployeeOnLeave(mop2, selectedDate, s.op2LeaveStartDate, s.op2LeaveEndDate);
+
         if (selectedShift === 1) { // Shift Siang
           if (mShiftInfo.operator1Role === 'S') {
-            activeMop = mop1 || null;
-            activeRole = 'S';
+            if (!isMop1OnLeave) {
+              activeMop = mop1 || null;
+              activeRole = 'S';
+            }
           } else if (mShiftInfo.operator2Role === 'S') {
-            activeMop = mop2 || null;
-            activeRole = 'S';
+            if (!isMop2OnLeave) {
+              activeMop = mop2 || null;
+              activeRole = 'S';
+            }
           }
         } else { // Shift Malam
           if (mShiftInfo.operator1Role === 'M') {
-            activeMop = mop1 || null;
-            activeRole = 'M';
+            if (!isMop1OnLeave) {
+              activeMop = mop1 || null;
+              activeRole = 'M';
+            }
           } else if (mShiftInfo.operator2Role === 'M') {
-            activeMop = mop2 || null;
-            activeRole = 'M';
+            if (!isMop2OnLeave) {
+              activeMop = mop2 || null;
+              activeRole = 'M';
+            }
           }
         }
 
@@ -426,21 +447,32 @@ export default function FieldMonitor({
 
         const isConfiguredEmpty = selectedShift === 1 ? !setting.operator1Id : !setting.operator2Id;
 
+        const isOp1OnLeave = isEmployeeOnLeave(op1, selectedDate, setting.op1LeaveStartDate, setting.op1LeaveEndDate);
+        const isOp2OnLeave = isEmployeeOnLeave(op2, selectedDate, setting.op2LeaveStartDate, setting.op2LeaveEndDate);
+
         if (selectedShift === 1) { // Shift Siang
           if (shiftInfo.operator1Role === 'S') {
-            activeOperator = op1 || null;
-            activeRoleStatus = 'S';
+            if (!isOp1OnLeave) {
+              activeOperator = op1 || null;
+              activeRoleStatus = 'S';
+            }
           } else if (shiftInfo.operator2Role === 'S') {
-            activeOperator = op2 || null;
-            activeRoleStatus = 'S';
+            if (!isOp2OnLeave) {
+              activeOperator = op2 || null;
+              activeRoleStatus = 'S';
+            }
           }
         } else { // Shift Malam
           if (shiftInfo.operator1Role === 'M') {
-            activeOperator = op1 || null;
-            activeRoleStatus = 'M';
+            if (!isOp1OnLeave) {
+              activeOperator = op1 || null;
+              activeRoleStatus = 'M';
+            }
           } else if (shiftInfo.operator2Role === 'M') {
-            activeOperator = op2 || null;
-            activeRoleStatus = 'M';
+            if (!isOp2OnLeave) {
+              activeOperator = op2 || null;
+              activeRoleStatus = 'M';
+            }
           }
         }
 
@@ -584,21 +616,32 @@ export default function FieldMonitor({
         let activeMop: Employee | null = null;
         let activeRole: 'S' | 'M' | 'OFF' = 'OFF';
 
+        const isMop1OnLeave = isEmployeeOnLeave(mop1, selectedDate, s.op1LeaveStartDate, s.op1LeaveEndDate);
+        const isMop2OnLeave = isEmployeeOnLeave(mop2, selectedDate, s.op2LeaveStartDate, s.op2LeaveEndDate);
+
         if (selectedShift === 1) { // Shift Siang
           if (mShiftInfo.operator1Role === 'S') {
-            activeMop = mop1 || null;
-            activeRole = 'S';
+            if (!isMop1OnLeave) {
+              activeMop = mop1 || null;
+              activeRole = 'S';
+            }
           } else if (mShiftInfo.operator2Role === 'S') {
-            activeMop = mop2 || null;
-            activeRole = 'S';
+            if (!isMop2OnLeave) {
+              activeMop = mop2 || null;
+              activeRole = 'S';
+            }
           }
         } else { // Shift Malam
           if (mShiftInfo.operator1Role === 'M') {
-            activeMop = mop1 || null;
-            activeRole = 'M';
+            if (!isMop1OnLeave) {
+              activeMop = mop1 || null;
+              activeRole = 'M';
+            }
           } else if (mShiftInfo.operator2Role === 'M') {
-            activeMop = mop2 || null;
-            activeRole = 'M';
+            if (!isMop2OnLeave) {
+              activeMop = mop2 || null;
+              activeRole = 'M';
+            }
           }
         }
 
