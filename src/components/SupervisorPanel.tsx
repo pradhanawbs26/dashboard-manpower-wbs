@@ -1634,9 +1634,10 @@ export default function SupervisorPanel({
                             onChange={(e) => setUnitStatus(e.target.value as HeavyUnit['status'])}
                             className="w-full bg-slate-50 border border-slate-200 rounded px-3 py-2 text-xs text-slate-800 focus:outline-none focus:border-amber-550 transition cursor-pointer font-bold"
                           >
-                            <option value="Ready">Ready (Siap Jalan)</option>
-                            <option value="Maintenance">Maintenance (Servis Berkala)</option>
+                            <option value="Ready">RFU / Ready (Siap Jalan)</option>
                             <option value="Breakdown">Breakdown (Mogok / Rusak)</option>
+                            <option value="Standby">Standby (Parkir / Cadangan)</option>
+                            <option value="Maintenance">Maintenance (Servis Berkala)</option>
                           </select>
                         </div>
                       </div>
@@ -1692,14 +1693,16 @@ export default function SupervisorPanel({
                               <span className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[9px] font-bold uppercase border ${
                                 u.status === 'Ready' 
                                   ? 'bg-emerald-50 text-emerald-700 border-emerald-200' 
-                                  : u.status === 'Maintenance'
-                                    ? 'bg-amber-50 text-amber-700 border-amber-250'
-                                    : 'bg-rose-50 text-rose-700 border-rose-200'
+                                  : u.status === 'Standby'
+                                    ? 'bg-sky-50 text-sky-700 border-sky-200'
+                                    : u.status === 'Maintenance'
+                                      ? 'bg-amber-50 text-amber-700 border-amber-250'
+                                      : 'bg-rose-50 text-rose-700 border-rose-200'
                               }`}>
                                 <span className={`w-1.5 h-1.5 rounded-full ${
-                                  u.status === 'Ready' ? 'bg-emerald-500 animate-pulse' : u.status === 'Maintenance' ? 'bg-amber-500' : 'bg-rose-500'
+                                  u.status === 'Ready' ? 'bg-emerald-500 animate-pulse' : u.status === 'Standby' ? 'bg-sky-500' : u.status === 'Maintenance' ? 'bg-amber-500' : 'bg-rose-500'
                                 }`}></span>
-                                {u.status}
+                                {u.status === 'Ready' ? 'RFU' : u.status}
                               </span>
                             </td>
                             <td className="p-4 text-right flex justify-end gap-1.5">
@@ -1796,9 +1799,10 @@ export default function SupervisorPanel({
                                         onChange={(e) => setUnitStatus(e.target.value as HeavyUnit['status'])}
                                         className="w-full bg-slate-50 border border-slate-200 rounded px-2.5 py-1.5 text-xs text-slate-850 focus:outline-none focus:border-amber-500 transition font-bold"
                                       >
-                                        <option value="Ready">Ready (Siap Jalan)</option>
-                                        <option value="Maintenance">Maintenance (Servis Berkala)</option>
+                                        <option value="Ready">RFU / Ready (Siap Jalan)</option>
                                         <option value="Breakdown">Breakdown (Mogok / Rusak)</option>
+                                        <option value="Standby">Standby (Parkir / Cadangan)</option>
+                                        <option value="Maintenance">Maintenance (Servis Berkala)</option>
                                       </select>
                                     </div>
 

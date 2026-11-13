@@ -7,7 +7,7 @@ import React, { useState, useMemo } from 'react';
 import { HeavyUnit, Employee, UnitSetting, UnitGroup, BackupTransfer, FTWRecord } from '../types';
 import { calculateShift, formatIndonesianDate, formatIndonesianDayName, isEmployeeOnLeave } from '../utils/scheduler';
 import { getOperatorFTW, getFTWStyleConfig } from '../utils/ftwHelper';
-import { Search, Calendar, ShieldAlert, CheckCircle2, Moon, Sun, AlertTriangle, ListFilter, Users, HeartPulse, X, Copy, Check, Filter, Clock, AlertCircle } from 'lucide-react';
+import { Search, Calendar, ShieldAlert, CheckCircle2, Moon, Sun, AlertTriangle, ListFilter, Users, HeartPulse, X, Copy, Check, Filter, Clock, AlertCircle, Wrench, PauseCircle, Settings2 } from 'lucide-react';
 import { motion } from 'motion/react';
 
 interface FieldMonitorProps {
@@ -19,6 +19,7 @@ interface FieldMonitorProps {
   selectedDate: string;
   setSelectedDate: (date: string) => void;
   onNavigateToSetting: (settingId: string) => void;
+  onUpdateUnitStatus?: (unitId: string, status: HeavyUnit['status']) => void;
   ftwRecords?: FTWRecord[];
   onOpenFTWModal?: () => void;
 }
@@ -32,6 +33,7 @@ export default function FieldMonitor({
   selectedDate,
   setSelectedDate,
   onNavigateToSetting,
+  onUpdateUnitStatus,
   ftwRecords = [],
   onOpenFTWModal
 }: FieldMonitorProps) {
@@ -45,6 +47,12 @@ export default function FieldMonitor({
   const [showOnlyPendingFtw, setShowOnlyPendingFtw] = useState(false);
   const [pendingSearchQuery, setPendingSearchQuery] = useState('');
   const [copiedToast, setCopiedToast] = useState(false);
+  const [selectedUnitForStatus, setSelectedUnitForStatus] = useState<{
+    unit: HeavyUnit;
+    settingId?: string;
+    isConfigured: boolean;
+    activeOperator?: Employee | null;
+  } | null>(null);
 
   // Employee mapping-by-ID helper for fast lookups
   const employeeMap = useMemo(() => {
@@ -175,6 +183,7 @@ export default function FieldMonitor({
 
         const isPrimaryActive = activeOperator && activeOperator.status === 'Active' && activeRoleStatus !== 'OFF';
         const isUnitBroken = unit && (unit.status === 'Breakdown' || unit.status === 'Maintenance');
+        const isUnitStandby = unit && unit.status === 'Standby';
 
         return {
           setting,
@@ -190,6 +199,7 @@ export default function FieldMonitor({
           isConfiguredEmpty,
           isFilledByBackupTransfer,
           isUnitBroken,
+          isUnitStandby,
           isPrimaryActive,
           isTransferredOut,
           isFilledByBreakdownRelocation: false,
@@ -233,6 +243,7 @@ export default function FieldMonitor({
         isConfiguredEmpty: true,
         isFilledByBackupTransfer: false,
         isUnitBroken: unit.status === 'Breakdown' || unit.status === 'Maintenance',
+        isUnitStandby: unit.status === 'Standby',
         isPrimaryActive: false,
         isTransferredOut: false,
         isFilledByBreakdownRelocation: false,
@@ -246,7 +257,7 @@ export default function FieldMonitor({
       ...targetUnconfiguredItems
     ];
 
-    // Step 2: Extract active operators of broken units who should be relocated
+    // Step 2: Extract active operators of broken or standby units who should be relocated to ready units
     const availableBreakdownCandidates: Array<{
       id: string;
       employee: Employee;
@@ -258,7 +269,7 @@ export default function FieldMonitor({
     }> = [];
 
     initialUtama.forEach(item => {
-      if (item.isPrimaryActive && item.isUnitBroken && !item.isFilledByBackupTransfer && !item.isTransferredOut) {
+      if (item.isPrimaryActive && (item.isUnitBroken || item.isUnitStandby) && !item.isFilledByBackupTransfer && !item.isTransferredOut) {
         if (item.activeOperator) {
           availableBreakdownCandidates.push({
             id: item.activeOperator.id,
@@ -268,7 +279,7 @@ export default function FieldMonitor({
             fromUnitId: item.unit?.id || '',
             settingId: item.setting.id
           });
-          // Remove them from operating the broken unit
+          // Remove them from operating the broken/standby unit
           item.activeOperator = null;
           item.activeRoleStatus = 'OFF';
         }
@@ -522,15 +533,17 @@ export default function FieldMonitor({
           isFilledByBackupTransfer: isTransferredOut, // treat manual dispatch as backup transfer representation
           dispatchedTo,
           isUnitBroken: false,
+          isUnitStandby: false,
           isFilledByBreakdownRelocation: false,
           breakdownOperatorFromUnitCode: undefined
         };
       });
 
-    // Check if ALL 'utama' settings have their primary operators active & on-duty (not filled by master, not blank, and not broken)
+    // Check if ALL 'utama' settings have their primary operators active & on-duty (not filled by master, not blank, not broken, and not standby)
     const allUtamaFilledByPrimary = mappedUtamaSettings.length > 0 && mappedUtamaSettings.every(item => {
       const isBroken = item.unit && (item.unit.status === 'Breakdown' || item.unit.status === 'Maintenance');
-      if (isBroken) return true; // ignore broken units from this block
+      const isStandby = item.unit && item.unit.status === 'Standby';
+      if (isBroken || isStandby) return true; // ignore broken/standby units from this block
 
       return item.originalOperator && 
              item.originalOperator.status === 'Active' && 
@@ -553,6 +566,11 @@ export default function FieldMonitor({
     return [...mappedUtamaSettings, ...filteredMasterSettings];
   }, [settings, selectedDate, selectedShift, employeeMap, unitMap, backupTransfers, units]);
 
+  // Total breakdown / maintenance units across fleet for the Breakdown group badge
+  const breakdownTotalCount = useMemo(() => {
+    return units.filter(u => u.status === 'Breakdown' || u.status === 'Maintenance').length;
+  }, [units]);
+
   // Filter based on search query (unit code or operator name) and group id
   // Filtered Settings based on Search, Group Filter, and Pending FTW filter
   const filteredResolvedSettings = useMemo(() => {
@@ -567,7 +585,12 @@ export default function FieldMonitor({
         item.unit.brand.toLowerCase().includes(q)
       );
 
-      const matchesGroup = selectedGroupFilter === 'all' || item.setting.groupId === selectedGroupFilter;
+      const matchesGroup =
+        selectedGroupFilter === 'all'
+          ? true
+          : selectedGroupFilter === 'breakdown'
+            ? (item.setting.groupId !== 'master' && !!item.isUnitBroken)
+            : item.setting.groupId === selectedGroupFilter;
 
       if (showOnlyPendingFtw) {
         if (!item.activeOperator || item.activeRoleStatus === 'OFF') return false;
@@ -582,6 +605,7 @@ export default function FieldMonitor({
   // Units that are not yet configured in setting
   const unconfiguredUnits = useMemo(() => {
     if (showOnlyPendingFtw) return [];
+    if (selectedGroupFilter === 'master') return [];
 
     const configuredUnitIds = new Set(settings.map(s => s.unitId));
     const filledUnconfiguredUnitIds = new Set(
@@ -593,9 +617,13 @@ export default function FieldMonitor({
     return units.filter(u => {
       const matchesSearch = u.unitCode.toLowerCase().includes(searchQuery.toLowerCase()) || 
                             u.brand.toLowerCase().includes(searchQuery.toLowerCase());
-      return !configuredUnitIds.has(u.id) && !filledUnconfiguredUnitIds.has(u.id) && matchesSearch;
+      const matchesBreakdown =
+        selectedGroupFilter === 'breakdown'
+          ? (u.status === 'Breakdown' || u.status === 'Maintenance')
+          : true;
+      return !configuredUnitIds.has(u.id) && !filledUnconfiguredUnitIds.has(u.id) && matchesSearch && matchesBreakdown;
     });
-  }, [units, settings, searchQuery, resolvedSettings, showOnlyPendingFtw]);
+  }, [units, settings, searchQuery, resolvedSettings, showOnlyPendingFtw, selectedGroupFilter]);
 
   // Active master operators who are currently standby (on-duty but not auto-dispatched or manually transferred out)
   const standbyMastersList = useMemo(() => {
@@ -998,7 +1026,7 @@ export default function FieldMonitor({
         </div>
 
         <div className="flex flex-wrap items-center gap-2 shrink-0">
-          <div className="flex items-center gap-1 bg-slate-50 p-1 rounded-md border border-slate-200">
+          <div className="flex items-center gap-1 bg-slate-50 p-1 rounded-md border border-slate-200 flex-wrap">
             <button
               onClick={() => {
                 setSelectedGroupFilter('all');
@@ -1028,9 +1056,34 @@ export default function FieldMonitor({
                 {g.name}
               </button>
             ))}
+            <button
+              id="filter-group-breakdown-btn"
+              onClick={() => {
+                setSelectedGroupFilter('breakdown');
+                setShowOnlyPendingFtw(false);
+              }}
+              className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold rounded-sm transition cursor-pointer ${
+                selectedGroupFilter === 'breakdown' && !showOnlyPendingFtw
+                  ? 'bg-orange-600 text-white font-black shadow-xs'
+                  : 'text-orange-700 hover:bg-orange-50 hover:text-orange-900'
+              }`}
+              title="Tampilkan kelompok unit yang sedang Breakdown / Maintenance"
+            >
+              <Wrench className="h-3.5 w-3.5" />
+              <span>Grup Breakdown</span>
+              <span className={`px-1.5 py-0.2 rounded-full text-[10px] font-black font-mono ${
+                selectedGroupFilter === 'breakdown' && !showOnlyPendingFtw
+                  ? 'bg-white text-orange-700'
+                  : breakdownTotalCount > 0
+                    ? 'bg-orange-100 text-orange-800 border border-orange-200'
+                    : 'bg-slate-200 text-slate-600'
+              }`}>
+                {breakdownTotalCount}
+              </span>
+            </button>
           </div>
 
-          {/* Tombol BELUM ISI FTW di sebelah tombol grup alat utama */}
+          {/* Tombol BELUM ISI FTW di sebelah tombol grup breakdown */}
           <button
             onClick={() => setIsPendingFtwModalOpen(true)}
             className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-black uppercase font-mono transition cursor-pointer shadow-xs border ${
@@ -1078,14 +1131,42 @@ export default function FieldMonitor({
         </div>
       )}
 
+      {/* Active Filter Banner when Grup Breakdown is selected */}
+      {selectedGroupFilter === 'breakdown' && !showOnlyPendingFtw && (
+        <div className="bg-orange-50 border-b border-orange-200 px-6 py-2.5 flex items-center justify-between text-xs text-orange-950">
+          <div className="flex items-center gap-2">
+            <Wrench className="h-4 w-4 text-orange-600 shrink-0" />
+            <span className="font-bold">
+              Kelompok Unit Breakdown: Menampilkan seluruh unit yang berstatus <strong>Breakdown / Perbaikan</strong> ({filteredResolvedSettings.length + unconfiguredUnits.length} unit).
+            </span>
+          </div>
+          <button
+            onClick={() => setSelectedGroupFilter('all')}
+            className="px-2.5 py-0.5 bg-orange-200 hover:bg-orange-300 text-orange-950 font-bold rounded text-[11px] font-mono cursor-pointer transition"
+          >
+            Tampilkan Semua
+          </button>
+        </div>
+      )}
+
       {/* 3. Monitor Active Grid (Blueprint layout from Image 1) */}
       <div className="flex-1 p-6 overflow-y-auto bg-slate-100" id="field-monitor-scroll-area">
         {/* If no configurations match and no unconfigured units */}
         {filteredResolvedSettings.length === 0 && unconfiguredUnits.length === 0 && (
           <div className="text-center py-12 bg-white rounded-lg border border-dashed border-slate-300 p-8 max-w-md mx-auto mt-6">
-            <Users className="mx-auto h-12 w-12 text-slate-400 mb-3" />
-            <h3 className="text-sm font-bold text-slate-700">Tidak ada unit ditemukan</h3>
-            <p className="text-xs text-slate-500 mt-1">Coba sesuaikan pencarian atau filter grup Anda.</p>
+            {selectedGroupFilter === 'breakdown' ? (
+              <>
+                <CheckCircle2 className="mx-auto h-12 w-12 text-emerald-500 mb-3" />
+                <h3 className="text-sm font-bold text-slate-800">Tidak ada unit breakdown</h3>
+                <p className="text-xs text-slate-500 mt-1">Seluruh unit saat ini dalam kondisi RFU / Standby dan tidak ada yang mengalami perbaikan.</p>
+              </>
+            ) : (
+              <>
+                <Users className="mx-auto h-12 w-12 text-slate-400 mb-3" />
+                <h3 className="text-sm font-bold text-slate-700">Tidak ada unit ditemukan</h3>
+                <p className="text-xs text-slate-500 mt-1">Coba sesuaikan pencarian atau filter grup Anda.</p>
+              </>
+            )}
           </div>
         )}
 
@@ -1107,7 +1188,7 @@ export default function FieldMonitor({
               {/* Compact Responsive Grid: 6 columns horizontally as minimum on desktop views */}
               <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 xl:grid-cols-8 2xl:grid-cols-10 gap-2">
                  {/* 1. Render Configured Units in this category */}
-                 {category.resolvedSettings.map(({ setting, unit, activeOperator, activeRoleStatus, isFilledByMaster, backupFromSlot, originalOperator, dispatchedTo, isConfiguredEmpty, isFilledByBackupTransfer, isUnitBroken, isFilledByBreakdownRelocation, breakdownOperatorFromUnitCode }) => {
+                 {category.resolvedSettings.map(({ setting, unit, activeOperator, activeRoleStatus, isFilledByMaster, backupFromSlot, originalOperator, dispatchedTo, isConfiguredEmpty, isFilledByBackupTransfer, isUnitBroken, isUnitStandby, isFilledByBreakdownRelocation, breakdownOperatorFromUnitCode }) => {
                    if (!unit) return null;
                    const isOff = activeRoleStatus === 'OFF' || !activeOperator;
                    const isMasterGroup = setting.groupId === 'master';
@@ -1130,6 +1211,8 @@ export default function FieldMonitor({
                             ? 'border-amber-400 ring-2 ring-amber-400/50 bg-amber-50/20 shadow-sm'
                           : isUnitBroken
                             ? 'border-orange-500 ring-2 ring-orange-500/60 bg-orange-50/20 shadow-md animate-pulse'
+                          : isUnitStandby
+                            ? 'border-sky-400 ring-2 ring-sky-400/50 bg-sky-50/20 shadow-sm hover:border-sky-500 hover:shadow-md'
                          : isOff 
                            ? 'border-slate-200 bg-slate-50' 
                            : isMasterGroup
@@ -1146,12 +1229,25 @@ export default function FieldMonitor({
                                    ? 'border-indigo-300 hover:border-indigo-500 hover:shadow-md bg-indigo-50/10'
                                    : 'border-slate-200 hover:border-amber-400 hover:shadow-md'
                        }`}
-                       onClick={() => onNavigateToSetting(setting.id)}
+                       onClick={() => {
+                         if (isMasterGroup) {
+                           onNavigateToSetting(setting.id);
+                         } else {
+                           setSelectedUnitForStatus({
+                             unit,
+                             settingId: setting.id,
+                             isConfigured: !(setting.id || '').startsWith('unconfig-setting-'),
+                             activeOperator
+                           });
+                         }
+                       }}
                      >
                        {/* Compact Unit Code Header */}
                        <div className={`py-1.5 px-2 text-center border-b font-extrabold font-mono tracking-wider text-xs ${
                          isUnitBroken
                             ? 'bg-orange-600 border-orange-600 text-white font-black shadow-xs'
+                         : isUnitStandby
+                            ? 'bg-sky-600 border-sky-600 text-white font-black shadow-xs'
                          : isOff 
                            ? 'bg-slate-100 border-slate-200 text-slate-400' 
                            : isMasterGroup
@@ -1175,6 +1271,11 @@ export default function FieldMonitor({
                       {isUnitBroken ? (
                         <div className="py-1 px-1.5 text-center border-b font-black tracking-wider text-[10.5px] bg-orange-500 border-orange-600 text-white flex items-center justify-center gap-1 shadow-inner animate-pulse">
                           <span className="font-black tracking-wide drop-shadow-xs">🚨 PERBAIKAN (BREAKDOWN)</span>
+                        </div>
+                      ) : isUnitStandby ? (
+                        <div className="py-1 px-1.5 text-center border-b font-black tracking-wider text-[10.5px] bg-sky-500 border-sky-600 text-white flex items-center justify-center gap-1 shadow-inner">
+                          <PauseCircle className="w-3.5 h-3.5 stroke-[2.5] shrink-0" />
+                          <span className="font-black tracking-wide">STANDBY</span>
                         </div>
                       ) : isOff ? (
                         <div className="py-1 px-1.5 text-center border-b font-black tracking-wider text-[10px] bg-slate-200 border-slate-300 text-slate-500 flex items-center justify-center gap-1 shadow-inner">
@@ -1243,6 +1344,18 @@ export default function FieldMonitor({
                              </p>
                              <p className="text-[8px] text-orange-600 font-mono mt-0.5 max-w-full truncate font-extrabold">
                                Operator Dipindah
+                             </p>
+                           </div>
+                         ) : isUnitStandby ? (
+                           <div className="py-2">
+                             <div className="inline-flex items-center gap-1 py-0.5 px-1.5 rounded-full text-[8.5px] font-extrabold uppercase bg-sky-100 text-sky-800 border border-sky-300 mb-1 font-mono tracking-wide">
+                               ⏸️ STANDBY
+                             </div>
+                             <p className="text-[11px] font-black text-sky-700 tracking-tight uppercase line-clamp-1 truncate">
+                               UNIT STANDBY
+                             </p>
+                             <p className="text-[8px] text-sky-600 font-mono mt-0.5 max-w-full truncate font-extrabold">
+                               {originalOperator ? `Op: ${originalOperator.name}` : 'Unit Cadangan / Parkir'}
                              </p>
                            </div>
                          ) : isOff ? (
@@ -1380,12 +1493,16 @@ export default function FieldMonitor({
 
                        {/* Compact Footer brand info */}
                        <div className={`px-2 py-1 border-t text-[9px] flex items-center justify-between ${
-                         isOff ? 'bg-slate-50 border-slate-200 text-slate-400' : 'bg-slate-50 border-slate-200 text-slate-500'
+                         isUnitStandby
+                           ? 'bg-sky-50/70 border-sky-200 text-sky-700'
+                           : isOff ? 'bg-slate-50 border-slate-200 text-slate-400' : 'bg-slate-50 border-slate-200 text-slate-500'
                        }`}>
                          <span className="truncate max-w-[80px] font-medium font-mono">
                            {isMasterGroup ? `EGI: ${activeOperator?.specializations?.[0] || 'Umum'}` : unit.brand}
                          </span>
-                         {isOff ? (
+                         {isUnitStandby ? (
+                           <span className="shrink-0 font-extrabold text-[8px] px-1 py-0.5 rounded uppercase bg-sky-100 text-sky-800 border border-sky-300">STANDBY</span>
+                         ) : isOff ? (
                            <span className="shrink-0 text-slate-400 font-bold uppercase text-[8px]">OFF</span>
                          ) : (
                            <span className={`shrink-0 font-extrabold text-[8px] px-1 py-0.5 rounded uppercase ${
@@ -1409,20 +1526,24 @@ export default function FieldMonitor({
                  {category.unconfigured.map(unit => {
                     const isBroken = unit.status === "Breakdown" || unit.status === "Maintenance";
                     const isMaint = unit.status === "Maintenance";
+                    const isStandby = unit.status === "Standby";
 
                     return (
                       <motion.div
                         key={`unconfigured-${unit.id}`}
                         layoutId={`unconfigured-card-${unit.id}`}
-                        className={`select-none bg-white border rounded-lg shadow-sm flex flex-col overflow-hidden transition-all duration-200 ${
+                        onClick={() => setSelectedUnitForStatus({ unit, isConfigured: false })}
+                        className={`select-none bg-white border rounded-lg shadow-sm flex flex-col overflow-hidden transition-all duration-200 cursor-pointer ${
                           isBroken
                             ? "border-orange-500 ring-2 ring-orange-500/60 bg-orange-50/25 shadow-md hover:border-orange-600"
-                            : "border-amber-300 hover:border-amber-450 hover:shadow-md"
+                            : isStandby
+                              ? "border-sky-400 ring-2 ring-sky-400/50 bg-sky-50/20 shadow-sm hover:border-sky-500 hover:shadow-md"
+                              : "border-amber-300 hover:border-amber-450 hover:shadow-md"
                         }`}
                       >
                         {/* Compact Unit Code Header of Unconfigured Tool */}
                         <div className={`py-1.5 px-2 text-center border-b font-extrabold font-mono tracking-wider text-xs text-white font-black ${
-                          isBroken ? "bg-orange-500 border-orange-600 shadow-sm" : "bg-slate-600 border-slate-600"
+                          isBroken ? "bg-orange-500 border-orange-600 shadow-sm" : isStandby ? "bg-sky-600 border-sky-600 shadow-sm" : "bg-slate-600 border-slate-600"
                         }`}>
                           {unit.unitCode}
                         </div>
@@ -1432,6 +1553,11 @@ export default function FieldMonitor({
                           <div className="py-1 px-1.5 text-center border-b font-black tracking-wider text-[10px] bg-orange-600 border-orange-700 text-white flex items-center justify-center gap-1 shadow-inner animate-pulse">
                             <AlertTriangle className="w-3.5 h-3.5 stroke-[2.5] shrink-0" />
                             <span>{isMaint ? "🛠️ MAINTENANCE" : "🚨 BREAKDOWN"}</span>
+                          </div>
+                        ) : isStandby ? (
+                          <div className="py-1 px-1.5 text-center border-b font-black tracking-wider text-[10px] bg-sky-500 border-sky-600 text-white flex items-center justify-center gap-1 shadow-inner">
+                            <PauseCircle className="w-3.5 h-3.5 stroke-[2.5] shrink-0" />
+                            <span>STANDBY</span>
                           </div>
                         ) : (
                           <div className="py-1 px-1.5 text-center border-b font-black tracking-wider text-[10.5px] bg-rose-700 border-rose-800 text-white flex items-center justify-center gap-1 shadow-inner">
@@ -1454,6 +1580,18 @@ export default function FieldMonitor({
                                 </p>
                                 <p className="text-[8px] text-orange-500 font-mono mt-0.5 font-bold">
                                   Alat Sedang Rusak
+                                </p>
+                              </>
+                            ) : isStandby ? (
+                              <>
+                                <div className="inline-flex items-center gap-0.5 py-0.5 px-1.5 rounded-full text-[8px] font-bold uppercase bg-sky-100 text-sky-800 border border-sky-300 mb-1 font-mono">
+                                  ⏸️ STANDBY
+                                </div>
+                                <p className="text-[11px] font-black text-sky-700 tracking-tight uppercase truncate">
+                                  UNIT STANDBY
+                                </p>
+                                <p className="text-[8px] text-sky-600 font-mono mt-0.5 font-bold">
+                                  Unit Cadangan / Parkir
                                 </p>
                               </>
                             ) : (
@@ -1481,9 +1619,11 @@ export default function FieldMonitor({
                           <span className={`shrink-0 font-extrabold text-[8px] px-1 py-0.5 rounded uppercase border ${
                             isBroken 
                               ? "bg-orange-500 text-white font-bold border-orange-600 shadow-xs" 
-                              : "bg-rose-50 text-rose-700 border-rose-200"
+                              : isStandby
+                                ? "bg-sky-100 text-sky-800 border-sky-300 font-bold"
+                                : "bg-rose-50 text-rose-700 border-rose-200"
                           }`}>
-                            {isBroken ? (isMaint ? "MAINTENANCE" : "BREAKDOWN") : "KOSONG"}
+                            {isBroken ? (isMaint ? "MAINTENANCE" : "BREAKDOWN") : isStandby ? "STANDBY" : "KOSONG"}
                           </span>
                         </div>
                       </motion.div>
@@ -1616,11 +1756,19 @@ export default function FieldMonitor({
         <div className="flex items-center gap-4 flex-wrap select-none">
           <div className="flex items-center gap-1.5">
             <span className="w-2.5 h-2.5 bg-white border border-slate-300 rounded-xs"></span>
-            <span>Unit Aktif Beroperasi</span>
+            <span>Unit RFU / Aktif Beroperasi</span>
+          </div>
+          <div className="flex items-center gap-1.5">
+            <span className="w-2.5 h-2.5 bg-orange-500 rounded-xs"></span>
+            <span className="text-orange-700 font-semibold">Unit Breakdown</span>
+          </div>
+          <div className="flex items-center gap-1.5">
+            <span className="w-2.5 h-2.5 bg-sky-500 rounded-xs"></span>
+            <span className="text-sky-700 font-semibold">Unit Standby</span>
           </div>
           <div className="flex items-center gap-1.5">
             <span className="w-2.5 h-2.5 bg-slate-50 border border-slate-200 rounded-xs"></span>
-            <span>Unit Standby (Hari Roster Off)</span>
+            <span>Hari Roster Off</span>
           </div>
           <div className="flex items-center gap-1.5">
             <span className="w-2.5 h-2.5 bg-rose-600 rounded-xs"></span>
@@ -1632,7 +1780,7 @@ export default function FieldMonitor({
           </div>
         </div>
         <div className="font-mono text-[10px] text-slate-400 font-extrabold uppercase">
-          *PAPAN DIPERBARUI OTOMATIS SEIRING PERUBAHAN TANGGAL &amp; SHIFT
+          *KLIK KARTU UNIT UNTUK PILIH POSISI RFU / BREAKDOWN / STANDBY
         </div>
       </div>
 
@@ -1785,6 +1933,177 @@ export default function FieldMonitor({
               <span>Menampilkan {filteredPendingList.length} dari {pendingFtwOperators.length} operator</span>
               <button
                 onClick={() => setIsPendingFtwModalOpen(false)}
+                className="px-4 py-1.5 bg-slate-200 hover:bg-slate-300 text-slate-800 font-bold rounded-lg text-xs transition cursor-pointer"
+              >
+                Tutup
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL: PILIH POSISI UNIT (RFU / BREAKDOWN / STANDBY) */}
+      {selectedUnitForStatus && (
+        <div
+          className="fixed inset-0 bg-slate-950/65 backdrop-blur-xs flex items-center justify-center p-4 z-50 animate-fadeIn font-sans"
+          onClick={() => setSelectedUnitForStatus(null)}
+        >
+          <div
+            className="bg-white rounded-2xl border border-slate-200 shadow-2xl w-full max-w-md overflow-hidden"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Header */}
+            <div className="bg-slate-900 text-white p-4 sm:p-5 flex items-center justify-between border-b border-slate-800">
+              <div>
+                <div className="flex items-center gap-2">
+                  <span className="px-2.5 py-0.5 rounded bg-amber-400 text-slate-950 font-mono font-black text-xs tracking-wider">
+                    {selectedUnitForStatus.unit.unitCode}
+                  </span>
+                  <span className={`px-2 py-0.5 rounded-full text-[10px] font-black uppercase font-mono border ${
+                    selectedUnitForStatus.unit.status === 'Ready'
+                      ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40'
+                      : selectedUnitForStatus.unit.status === 'Standby'
+                        ? 'bg-sky-500/20 text-sky-300 border-sky-500/40'
+                        : 'bg-orange-500/20 text-orange-300 border-orange-500/40'
+                  }`}>
+                    Saat Ini: {selectedUnitForStatus.unit.status === 'Ready' ? 'RFU' : selectedUnitForStatus.unit.status}
+                  </span>
+                </div>
+                <p className="text-xs text-slate-300 mt-1.5 font-medium">
+                  {selectedUnitForStatus.unit.brand} • {selectedUnitForStatus.unit.type}
+                </p>
+              </div>
+              <button
+                onClick={() => setSelectedUnitForStatus(null)}
+                className="p-1.5 text-slate-400 hover:text-white rounded-lg hover:bg-slate-800 transition cursor-pointer"
+                title="Tutup"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            {/* Selection Choices */}
+            <div className="p-4 sm:p-5 space-y-2.5">
+              <p className="text-[11px] font-black uppercase tracking-wider text-slate-500 font-mono mb-1">
+                Pilih Posisi / Status Unit:
+              </p>
+
+              {/* Option 1: RFU */}
+              <button
+                type="button"
+                onClick={() => {
+                  onUpdateUnitStatus?.(selectedUnitForStatus.unit.id, 'Ready');
+                  setSelectedUnitForStatus(null);
+                }}
+                className={`w-full p-3.5 rounded-xl border-2 text-left flex items-center justify-between transition cursor-pointer ${
+                  selectedUnitForStatus.unit.status === 'Ready'
+                    ? 'border-emerald-500 bg-emerald-50 ring-2 ring-emerald-400/30'
+                    : 'border-slate-200 hover:border-emerald-400 hover:bg-emerald-50/40'
+                }`}
+              >
+                <div className="flex items-center gap-3">
+                  <div className="p-2 rounded-lg bg-emerald-600 text-white shrink-0 shadow-xs">
+                    <CheckCircle2 className="h-5 w-5" />
+                  </div>
+                  <div>
+                    <div className="font-black text-sm text-slate-900 flex items-center gap-2">
+                      <span>RFU (Ready For Use)</span>
+                      {selectedUnitForStatus.unit.status === 'Ready' && (
+                        <span className="text-[9px] font-mono uppercase px-1.5 py-0.5 rounded bg-emerald-600 text-white">Aktif</span>
+                      )}
+                    </div>
+                    <p className="text-[11px] text-slate-500 mt-0.5">
+                      Unit siap jalan dan beroperasi normal di lapangan.
+                    </p>
+                  </div>
+                </div>
+              </button>
+
+              {/* Option 2: Breakdown */}
+              <button
+                type="button"
+                onClick={() => {
+                  onUpdateUnitStatus?.(selectedUnitForStatus.unit.id, 'Breakdown');
+                  setSelectedUnitForStatus(null);
+                }}
+                className={`w-full p-3.5 rounded-xl border-2 text-left flex items-center justify-between transition cursor-pointer ${
+                  selectedUnitForStatus.unit.status === 'Breakdown' || selectedUnitForStatus.unit.status === 'Maintenance'
+                    ? 'border-orange-500 bg-orange-50 ring-2 ring-orange-400/30'
+                    : 'border-slate-200 hover:border-orange-400 hover:bg-orange-50/40'
+                }`}
+              >
+                <div className="flex items-center gap-3">
+                  <div className="p-2 rounded-lg bg-orange-600 text-white shrink-0 shadow-xs">
+                    <Wrench className="h-5 w-5" />
+                  </div>
+                  <div>
+                    <div className="font-black text-sm text-slate-900 flex items-center gap-2">
+                      <span>Breakdown</span>
+                      {(selectedUnitForStatus.unit.status === 'Breakdown' || selectedUnitForStatus.unit.status === 'Maintenance') && (
+                        <span className="text-[9px] font-mono uppercase px-1.5 py-0.5 rounded bg-orange-600 text-white">Aktif</span>
+                      )}
+                    </div>
+                    <p className="text-[11px] text-slate-500 mt-0.5">
+                      Unit mengalami kerusakan / perbaikan. Masuk kelompok Grup Breakdown.
+                    </p>
+                  </div>
+                </div>
+              </button>
+
+              {/* Option 3: Standby */}
+              <button
+                type="button"
+                onClick={() => {
+                  onUpdateUnitStatus?.(selectedUnitForStatus.unit.id, 'Standby');
+                  setSelectedUnitForStatus(null);
+                }}
+                className={`w-full p-3.5 rounded-xl border-2 text-left flex items-center justify-between transition cursor-pointer ${
+                  selectedUnitForStatus.unit.status === 'Standby'
+                    ? 'border-sky-500 bg-sky-50 ring-2 ring-sky-400/30'
+                    : 'border-slate-200 hover:border-sky-400 hover:bg-sky-50/40'
+                }`}
+              >
+                <div className="flex items-center gap-3">
+                  <div className="p-2 rounded-lg bg-sky-600 text-white shrink-0 shadow-xs">
+                    <PauseCircle className="h-5 w-5" />
+                  </div>
+                  <div>
+                    <div className="font-black text-sm text-slate-900 flex items-center gap-2">
+                      <span>Standby</span>
+                      {selectedUnitForStatus.unit.status === 'Standby' && (
+                        <span className="text-[9px] font-mono uppercase px-1.5 py-0.5 rounded bg-sky-600 text-white">Aktif</span>
+                      )}
+                    </div>
+                    <p className="text-[11px] text-slate-500 mt-0.5">
+                      Unit dalam kondisi sehat namun parkir / tidak dioperasikan sementara.
+                    </p>
+                  </div>
+                </div>
+              </button>
+            </div>
+
+            {/* Footer Actions */}
+            <div className="p-3.5 bg-slate-50 border-t border-slate-200 flex items-center justify-between gap-2">
+              {selectedUnitForStatus.isConfigured && selectedUnitForStatus.settingId ? (
+                <button
+                  type="button"
+                  onClick={() => {
+                    const sid = selectedUnitForStatus.settingId!;
+                    setSelectedUnitForStatus(null);
+                    onNavigateToSetting(sid);
+                  }}
+                  className="flex items-center gap-1.5 px-3 py-1.5 bg-white hover:bg-amber-50 text-slate-700 hover:text-amber-900 border border-slate-300 hover:border-amber-400 rounded-lg text-xs font-bold transition cursor-pointer"
+                >
+                  <Settings2 className="h-3.5 w-3.5 text-amber-600" />
+                  <span>Settingan Roster Unit</span>
+                </button>
+              ) : (
+                <span className="text-[10px] font-mono text-slate-400">Unit belum dikonfigurasi roster</span>
+              )}
+
+              <button
+                type="button"
+                onClick={() => setSelectedUnitForStatus(null)}
                 className="px-4 py-1.5 bg-slate-200 hover:bg-slate-300 text-slate-800 font-bold rounded-lg text-xs transition cursor-pointer"
               >
                 Tutup

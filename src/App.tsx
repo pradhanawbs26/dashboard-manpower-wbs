@@ -505,6 +505,13 @@ export default function App() {
     }, 100);
   };
 
+  // Quick update unit operational position (RFU / Breakdown / Standby) from Dashboard Unit
+  const handleUpdateUnitStatus = (unitId: string, newStatus: HeavyUnit['status']) => {
+    customSetUnits(prev =>
+      prev.map(u => (u.id === unitId ? { ...u, status: newStatus } : u))
+    );
+  };
+
   return (
     <div className="min-h-screen bg-slate-100 flex flex-col font-sans selection:bg-amber-400 selection:text-slate-900 overflow-x-hidden antialiased text-slate-700">
       
@@ -632,6 +639,7 @@ export default function App() {
               selectedDate={selectedDate}
               setSelectedDate={setSelectedDate}
               onNavigateToSetting={handleNavigateToSetting}
+              onUpdateUnitStatus={handleUpdateUnitStatus}
               ftwRecords={ftwRecords}
               onOpenFTWModal={() => setIsFTWModalOpen(true)}
             />

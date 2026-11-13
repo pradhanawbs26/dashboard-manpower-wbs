@@ -217,6 +217,7 @@ export default function ResumeOperator({
 
         const isPrimaryActive = activeOperator && activeOperator.status === 'Active' && activeRoleStatus !== 'OFF';
         const isUnitBroken = unit && (unit.status === 'Breakdown' || unit.status === 'Maintenance');
+        const isUnitStandby = unit && unit.status === 'Standby';
 
         return {
           setting,
@@ -232,6 +233,7 @@ export default function ResumeOperator({
           isConfiguredEmpty,
           isFilledByBackupTransfer,
           isUnitBroken,
+          isUnitStandby,
           isPrimaryActive,
           isTransferredOut,
           isFilledByBreakdownRelocation: false,
@@ -298,7 +300,7 @@ export default function ResumeOperator({
     }> = [];
 
     initialUtama.forEach(item => {
-      if (item.isPrimaryActive && item.isUnitBroken && !item.isFilledByBackupTransfer && !item.isTransferredOut) {
+      if (item.isPrimaryActive && (item.isUnitBroken || item.isUnitStandby) && !item.isFilledByBackupTransfer && !item.isTransferredOut) {
         if (item.activeOperator) {
           availableBreakdownCandidates.push({
             id: item.activeOperator.id,
@@ -970,9 +972,11 @@ export default function ResumeOperator({
                         <span className={`inline-flex items-center px-2 py-0.5 rounded text-[9.5px] font-black uppercase font-mono ${
                           item.unit?.status === 'Ready' 
                             ? 'bg-emerald-100 text-emerald-800' 
-                            : 'bg-orange-500 text-white font-bold border border-orange-600 shadow-xs'
+                            : item.unit?.status === 'Standby'
+                              ? 'bg-sky-100 text-sky-800 border border-sky-300 font-bold'
+                              : 'bg-orange-500 text-white font-bold border border-orange-600 shadow-xs'
                         }`}>
-                          {item.unit?.status || 'Unknown'}
+                          {item.unit?.status === 'Ready' ? 'RFU' : (item.unit?.status || 'Unknown')}
                         </span>
                       </td>
                       <td className="p-3 font-extrabold text-slate-900">
